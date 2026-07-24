@@ -1,0 +1,20 @@
+export type ProductRecord = {
+  id: number;
+  name: string;
+  cat: string;
+  sub: string;
+  price: number;
+  tag: string;
+  icon: string;
+  rating: number;
+  reviews: number;
+  stock: number;
+  active: boolean;
+  sizes: string[];
+  material: string;
+  pair: number;
+  sports: string[];
+  colors: Array<{ n: string; h: string }>;
+  desc: string;
+  image?: string | null;
+};

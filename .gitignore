@@ -1,0 +1,21 @@
+# dependencies
+/node_modules
+
+# build
+/dist
+/coverage
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs and caches
+*.log
+*.tsbuildinfo
+.eslintcache
+
+# operating systems and editors
+.DS_Store
+.idea/
+.vscode/
