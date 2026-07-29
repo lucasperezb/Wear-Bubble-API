@@ -153,7 +153,7 @@ export class EmailService {
     const lines = order.items
       .map(
         (item) =>
-          `<li>${item.qty}x ${this.escape(item.name)} · Tam. ${this.escape(item.size)}</li>`,
+          `<li>${item.qty}x ${this.escape(item.name)}${item.color ? ` · Cor ${this.escape(item.color)}` : ''} · Tam. ${this.escape(item.size)}</li>`,
       )
       .join('');
     return `<div style="background:#f4efe3;padding:18px;margin:22px 0">

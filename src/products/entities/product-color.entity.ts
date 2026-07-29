@@ -34,4 +34,7 @@ export class ProductColorEntity {
 
   @Column({ type: 'smallint', default: 0 })
   position: number;
+
+  @Column({ name: 'size_stock', type: 'jsonb', default: () => "'{}'::jsonb" })
+  sizeStock: Record<string, number>;
 }

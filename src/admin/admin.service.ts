@@ -78,9 +78,32 @@ export class AdminService {
         material: row.material,
         pair: row.pairId || 0,
         sports: row.sports,
-        colors: row.colors.map((color) => ({ n: color.name, h: color.hex })),
+        colors: row.colors.map((color) => ({
+          n: color.name,
+          h: color.hex,
+          sizes: Object.entries(color.sizeStock || {}).map(([size, q]) => ({
+            size,
+            q: Math.max(0, Number(q) || 0),
+          })),
+        })),
         desc: row.desc,
-        image: row.image,
+        image:
+          row.images?.find((image) => image.isPrimary)?.url ||
+          row.images?.sort((a, b) => a.position - b.position)[0]?.url ||
+          row.image,
+        images: (row.images || [])
+          .sort(
+            (a, b) =>
+              Number(b.isPrimary) - Number(a.isPrimary) ||
+              a.position - b.position,
+          )
+          .map((image) => ({
+            id: image.id,
+            url: image.url,
+            altText: image.altText,
+            position: image.position,
+            isPrimary: image.isPrimary,
+          })),
       })),
       orders: orders.map((row) => ({
         id: row.id,
@@ -91,6 +114,7 @@ export class AdminService {
           pid: item.productId || 0,
           name: item.productName,
           size: item.size,
+          color: item.color,
           qty: item.quantity,
           price: item.unitPrice,
         })),
@@ -100,6 +124,26 @@ export class AdminService {
         couponPct: row.couponPct,
         status: row.status,
         shipStage: row.shipStage,
+        delivery: {
+          name: row.customerName,
+          email: row.customerEmail,
+          taxId: row.customerTaxId,
+          phone: row.customerPhone,
+          cep: row.shippingCep,
+          street: row.shippingStreet,
+          neighborhood: row.shippingNeighborhood,
+          number: row.shippingNumber,
+          reference: row.shippingReference,
+          city: row.shippingCity,
+          state: row.shippingState,
+        },
+        shipping: {
+          serviceId: row.shippingServiceId,
+          name: row.shippingServiceName,
+          company: row.shippingCompany,
+          price: row.shippingPrice,
+          deliveryTime: row.shippingDeliveryTime,
+        },
         gateway: row.gateway,
         pagbankCheckoutId: row.pagbankCheckoutId,
         pagbankPaymentId: row.pagbankPaymentId,

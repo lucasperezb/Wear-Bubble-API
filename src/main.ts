@@ -18,6 +18,17 @@ async function bootstrap() {
   const env = app.get(AppConfigService);
   const auth = app.get(AuthTokenService);
   app.use(cookieParser());
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api/auth')) {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate',
+      );
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+    next();
+  });
   app.use((req: Request, _res: Response, next: NextFunction) => {
     const header = req.headers.authorization || '';
     const cookies = req.cookies as Record<string, string | undefined>;

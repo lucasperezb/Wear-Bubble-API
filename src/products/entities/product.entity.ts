@@ -11,6 +11,7 @@ import { OrderItemEntity } from '../../orders/entities/order-item.entity';
 import { decimalTransformer } from '../../persistence/column-transformers';
 import { TimestampedEntity } from '../../persistence/timestamped.entity';
 import { ProductColorEntity } from './product-color.entity';
+import { ProductImageEntity } from './product-image.entity';
 
 @Entity({ name: 'products' })
 @Check('ck_products_stock', 'stock >= 0')
@@ -86,6 +87,11 @@ export class ProductEntity extends TimestampedEntity {
 
   @Column({ type: 'text', nullable: true })
   image: string | null;
+
+  @OneToMany(() => ProductImageEntity, (image) => image.product, {
+    eager: true,
+  })
+  images: ProductImageEntity[];
 
   @OneToMany(() => OrderItemEntity, (item) => item.product)
   orderItems?: OrderItemEntity[];

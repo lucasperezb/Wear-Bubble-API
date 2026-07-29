@@ -13,17 +13,28 @@ import { OrderItemEntity } from '../orders/entities/order-item.entity';
 import { OrderEntity } from '../orders/entities/order.entity';
 import { ProductColorEntity } from '../products/entities/product-color.entity';
 import { ProductEntity } from '../products/entities/product.entity';
+import { ProductImageEntity } from '../products/entities/product-image.entity';
+import { MelhorEnvioCredentialEntity } from '../integrations/melhor-envio/entities/melhor-envio-credential.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
 
+const databaseUrl =
+  process.env.DATABASE_URL || process.env.POSTGRES_URL || undefined;
+const databaseSsl = booleanEnv(process.env.DB_SSL, false);
+
 const ormconfig: DataSourceOptions = {
   type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5433,
-  username: process.env.DB_USER || 'bubble',
-  password: process.env.DB_PASSWORD || 'bubble',
-  database: process.env.DB_NAME || 'bubble_store',
+  ...(databaseUrl
+    ? { url: databaseUrl }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: Number(process.env.DB_PORT) || 5433,
+        username: process.env.DB_USER || 'bubble',
+        password: process.env.DB_PASSWORD || 'bubble',
+        database: process.env.DB_NAME || 'bubble_store',
+      }),
+  ssl: databaseSsl ? { rejectUnauthorized: false } : false,
   entities: [
     UserEntity,
     LoginCodeEntity,
@@ -32,14 +43,17 @@ const ormconfig: DataSourceOptions = {
     DeletionReportEntity,
     ProductEntity,
     ProductColorEntity,
+    ProductImageEntity,
     OrderEntity,
     OrderItemEntity,
     OrderCounterEntity,
     CouponEntity,
     EventEntity,
     LeadEntity,
+    MelhorEnvioCredentialEntity,
   ],
   migrations: [`${__dirname}/migrations/*{.ts,.js}`],
+  migrationsRun: booleanEnv(process.env.DB_MIGRATIONS_RUN, false),
   synchronize: booleanEnv(process.env.DB_SYNCHRONIZE, false),
   logging: booleanEnv(process.env.DB_LOGGING, false),
 };

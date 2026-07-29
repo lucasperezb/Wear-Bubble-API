@@ -14,7 +14,18 @@ export type ProductRecord = {
   material: string;
   pair: number;
   sports: string[];
-  colors: Array<{ n: string; h: string }>;
+  colors: Array<{
+    n: string;
+    h: string;
+    sizes?: Array<{ size: string; q: number }>;
+  }>;
   desc: string;
   image?: string | null;
+  images?: Array<{
+    id: string;
+    url: string;
+    altText: string;
+    position: number;
+    isPrimary: boolean;
+  }>;
 };

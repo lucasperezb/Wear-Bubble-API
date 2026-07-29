@@ -2,6 +2,7 @@ export type OrderLine = {
   pid: number;
   name: string;
   size: string;
+  color: string;
   qty: number;
   price: number;
 };
@@ -20,6 +21,14 @@ export type OrderDelivery = {
   state: string;
 };
 
+export type OrderShipping = {
+  serviceId: number;
+  name: string;
+  company: string;
+  price: number;
+  deliveryTime: number;
+};
+
 export type OrderRecord = {
   id: string;
   customerId: string;
@@ -33,6 +42,7 @@ export type OrderRecord = {
   status: 'pending' | 'paid' | 'canceled';
   shipStage: number;
   delivery?: OrderDelivery;
+  shipping?: OrderShipping;
   gateway?: string;
   pagbankCheckoutId?: string | null;
   pagbankPaymentId?: string | null;

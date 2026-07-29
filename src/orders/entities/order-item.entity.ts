@@ -48,6 +48,9 @@ export class OrderItemEntity {
   @Column({ type: 'varchar', length: 20 })
   size: string;
 
+  @Column({ type: 'varchar', length: 100, default: '' })
+  color: string;
+
   @Column({ type: 'integer' })
   quantity: number;
 

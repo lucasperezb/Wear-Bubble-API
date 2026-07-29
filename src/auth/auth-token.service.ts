@@ -38,11 +38,17 @@ export class AuthTokenService {
       httpOnly: true,
       sameSite: 'lax',
       secure: process.env.NODE_ENV === 'production',
+      path: '/',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
   }
 
   clearCookie(res: Response) {
-    res.clearCookie('bubble_token');
+    res.clearCookie('bubble_token', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
   }
 }

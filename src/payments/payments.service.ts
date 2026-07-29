@@ -22,6 +22,7 @@ import {
   CreateCheckoutDto,
 } from './dto/create-checkout.dto';
 import { PaymentWebhookDto } from './dto/payment-webhook.dto';
+import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
 
 @Injectable()
 export class PaymentsService {
@@ -37,6 +38,7 @@ export class PaymentsService {
     @InjectRepository(AddressEntity)
     private readonly addresses: Repository<AddressEntity>,
     private readonly users: UsersService,
+    private readonly melhorEnvio: MelhorEnvioService,
   ) {}
 
   async publicKey() {
@@ -163,6 +165,12 @@ export class PaymentsService {
       return this.payExistingOrderWithCard(dto);
     }
     const customer = await this.resolveCustomer(user, dto.customer);
+    if (!dto.shippingQuoteToken)
+      throw new BadRequestException('Selecione uma opcao de entrega.');
+    const shipping = this.melhorEnvio.verifyQuoteToken(
+      dto.shippingQuoteToken,
+      customer.delivery.cep,
+    );
     const order = await this.orders.createPending(
       customer.uid,
       {
@@ -172,6 +180,7 @@ export class PaymentsService {
         bundle: dto.bundle,
       },
       customer.delivery,
+      shipping,
     );
     const payload = this.orderPayload(
       customer.delivery,

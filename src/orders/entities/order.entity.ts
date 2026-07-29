@@ -92,6 +92,38 @@ export class OrderEntity extends TimestampedEntity {
   @Column({ name: 'shipping_state', type: 'varchar', length: 2, default: '' })
   shippingState: string;
 
+  @Column({ name: 'shipping_service_id', type: 'integer', nullable: true })
+  shippingServiceId: number | null;
+
+  @Column({
+    name: 'shipping_service_name',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
+  shippingServiceName: string | null;
+
+  @Column({
+    name: 'shipping_company',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
+  shippingCompany: string | null;
+
+  @Column({
+    name: 'shipping_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  shippingPrice: number;
+
+  @Column({ name: 'shipping_delivery_time', type: 'integer', nullable: true })
+  shippingDeliveryTime: number | null;
+
   @OneToMany(() => OrderItemEntity, (item) => item.order, {
     cascade: true,
     eager: true,

@@ -122,6 +122,11 @@ export class CreateCheckoutDto {
   existingOrderId?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(3000)
+  shippingQuoteToken?: string;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => CheckoutCustomerDto)
   customer?: CheckoutCustomerDto;

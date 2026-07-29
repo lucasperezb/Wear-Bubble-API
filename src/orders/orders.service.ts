@@ -11,7 +11,7 @@ import { CouponsService } from '../coupons/coupons.service';
 import { EmailService } from '../email/email.service';
 import { ProductsService } from '../products/products.service';
 import { CouponRecord } from '../coupons/coupon.types';
-import { OrderDelivery, OrderRecord } from './order.types';
+import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { OrderCounterEntity } from './entities/order-counter.entity';
@@ -42,6 +42,7 @@ export class OrdersService {
     uid: string,
     dto: CreateOrderDto,
     delivery?: OrderDelivery,
+    shipping?: OrderShipping,
   ): Promise<OrderRecord> {
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
@@ -65,9 +66,29 @@ export class OrdersService {
         1,
         Math.min(10, parseInt(String(item.qty), 10) || 1),
       );
-      if (product.stock < qty)
+      const size = String(item.size || 'U').trim().toUpperCase();
+      const color = String(item.color || '').trim();
+      if (!product.sizes.includes(size))
         throw new BadRequestException(
-          `Estoque insuficiente de ${product.name}.`,
+          `Tamanho ${size} indisponivel para ${product.name}.`,
+        );
+      const hasVariantStock = product.colors.some(
+        (option) => (option.sizes || []).length > 0,
+      );
+      const selectedColor = product.colors.find(
+        (option) => option.n.toLocaleLowerCase('pt-BR') === color.toLocaleLowerCase('pt-BR'),
+      );
+      const variantQuantity = selectedColor?.sizes?.find(
+        (option) => option.size.toUpperCase() === size,
+      )?.q;
+      if (hasVariantStock && (!selectedColor || variantQuantity === undefined))
+        throw new BadRequestException(
+          `Selecione uma cor e tamanho disponiveis para ${product.name}.`,
+        );
+      const available = hasVariantStock ? Number(variantQuantity) || 0 : product.stock;
+      if (available < qty)
+        throw new BadRequestException(
+          `Estoque insuficiente de ${product.name} na cor ${selectedColor?.n || color}, tamanho ${size}.`,
         );
       const lineTotal = product.price * qty;
       subtotal += lineTotal;
@@ -79,7 +100,8 @@ export class OrdersService {
       lines.push({
         pid: product.id,
         name: product.name,
-        size: item.size || 'U',
+        size,
+        color: selectedColor?.n || color,
         qty,
         price: product.price,
       });
@@ -101,10 +123,16 @@ export class OrdersService {
       couponPct = Math.min(90, Math.max(0, Number(coupon.pct) || 0));
       subtotal *= 1 - couponPct / 100;
     }
-    const total =
+    const productTotal =
       Math.round(
         subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
       ) / 100;
+    const shippingPrice = this.config.freeShippingEnabled
+      ? 0
+      : productTotal >= 299
+        ? 0
+        : Math.max(0, Number(shipping?.price) || 0);
+    const total = Math.round((productTotal + shippingPrice) * 100) / 100;
     const order: OrderRecord = {
       id: randomUUID(),
       customerId: uid,
@@ -118,6 +146,7 @@ export class OrdersService {
       status: 'pending',
       shipStage: 0,
       ...(delivery ? { delivery } : {}),
+      ...(shipping ? { shipping: { ...shipping, price: shippingPrice } } : {}),
     };
     await this.orders.save(
       this.orders.create({
@@ -136,11 +165,17 @@ export class OrdersService {
         shippingReference: delivery?.reference || '',
         shippingCity: delivery?.city || '',
         shippingState: delivery?.state || '',
+        shippingServiceId: shipping?.serviceId || null,
+        shippingServiceName: shipping?.name || null,
+        shippingCompany: shipping?.company || null,
+        shippingPrice,
+        shippingDeliveryTime: shipping?.deliveryTime || null,
         items: lines.map((line) =>
           this.orderItems.create({
             productId: line.pid,
             productName: line.name,
             size: line.size,
+            color: line.color,
             quantity: line.qty,
             unitPrice: line.price,
           }),
@@ -196,10 +231,7 @@ export class OrdersService {
     if (dto.tracking !== undefined) row.tracking = String(dto.tracking);
     await this.orders.save(row);
     const order = this.toRecord(row);
-    if (
-      previousStage !== row.shipStage ||
-      previousTracking !== row.tracking
-    ) {
+    if (previousStage !== row.shipStage || previousTracking !== row.tracking) {
       await this.email.sendShippingUpdate(order);
     }
     return order;
@@ -223,6 +255,7 @@ export class OrdersService {
         pid: item.productId || 0,
         name: item.productName,
         size: item.size,
+        color: item.color,
         qty: item.quantity,
         price: item.unitPrice,
       })),
@@ -245,6 +278,17 @@ export class OrdersService {
         city: row.shippingCity,
         state: row.shippingState,
       },
+      ...(row.shippingServiceId
+        ? {
+            shipping: {
+              serviceId: row.shippingServiceId,
+              name: row.shippingServiceName || '',
+              company: row.shippingCompany || '',
+              price: row.shippingPrice,
+              deliveryTime: row.shippingDeliveryTime || 0,
+            },
+          }
+        : {}),
       ...(row.gateway ? { gateway: row.gateway } : {}),
       ...(row.pagbankCheckoutId
         ? { pagbankCheckoutId: row.pagbankCheckoutId }

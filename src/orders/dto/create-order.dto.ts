@@ -25,6 +25,11 @@ export class OrderItemDto {
   size?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  color?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

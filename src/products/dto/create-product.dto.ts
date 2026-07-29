@@ -13,6 +13,17 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+export class ProductColorSizeDto {
+  @IsString()
+  @MaxLength(20)
+  size: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  q: number;
+}
+
 export class ProductColorDto {
   @IsString()
   @MaxLength(100)
@@ -20,6 +31,12 @@ export class ProductColorDto {
 
   @IsHexColor()
   h: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductColorSizeDto)
+  sizes?: ProductColorSizeDto[];
 }
 
 export class CreateProductDto {
@@ -96,7 +113,7 @@ export class CreateProductDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
+  @Min(0)
   pair?: number;
 
   @IsOptional()
