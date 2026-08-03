@@ -8,11 +8,17 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthTokenService } from './auth-token.service';
 import { LoginCodeEntity } from './entities/login-code.entity';
+import { PasswordResetTokenEntity } from './entities/password-reset-token.entity';
 
 @Module({
   imports: [
     UsersModule,
-    TypeOrmModule.forFeature([ProfileEntity, LeadEntity, LoginCodeEntity]),
+    TypeOrmModule.forFeature([
+      ProfileEntity,
+      LeadEntity,
+      LoginCodeEntity,
+      PasswordResetTokenEntity,
+    ]),
     EmailModule,
   ],
   controllers: [AuthController],

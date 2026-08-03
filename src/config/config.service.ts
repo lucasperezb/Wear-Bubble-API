@@ -55,9 +55,7 @@ export class AppConfigService {
   }
 
   get supabaseServiceRoleKey() {
-    return (
-      this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY') || ''
-    ).trim();
+    return (this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY') || '').trim();
   }
 
   get supabaseStorageBucket() {

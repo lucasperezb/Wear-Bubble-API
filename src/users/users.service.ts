@@ -18,6 +18,10 @@ export class UsersService {
     return this.repository.findOneBy({ email });
   }
 
+  findByUid(uid: string) {
+    return this.repository.findOneBy({ uid });
+  }
+
   findAll() {
     return this.repository.find();
   }

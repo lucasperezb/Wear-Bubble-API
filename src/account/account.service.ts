@@ -70,7 +70,7 @@ export class AccountService {
 
   async updateAddress(uid: string, id: string, dto: UpdateAddressDto) {
     const address = await this.addresses.findOneBy({ id, userUid: uid });
-    if (!address) throw new NotFoundException('Endereco nao encontrado.');
+    if (!address) throw new NotFoundException('Endereço não encontrado.');
     if (dto.isDefault)
       await this.addresses.update({ userUid: uid }, { isDefault: false });
     const textFields = [
@@ -92,7 +92,7 @@ export class AccountService {
 
   async deleteAddress(uid: string, id: string) {
     const address = await this.addresses.findOneBy({ id, userUid: uid });
-    if (!address) throw new NotFoundException('Endereco nao encontrado.');
+    if (!address) throw new NotFoundException('Endereço não encontrado.');
     await this.addresses.remove(address);
     if (address.isDefault) {
       const next = await this.addresses.findOne({

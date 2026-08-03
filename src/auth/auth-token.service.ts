@@ -24,7 +24,7 @@ export class AuthTokenService {
       typeof payload.email !== 'string' ||
       !['customer', 'manager'].includes(String(payload.role))
     ) {
-      throw new Error('Token de autenticacao invalido.');
+      throw new Error('Token de autenticação inválido.');
     }
     return {
       uid: payload.uid,

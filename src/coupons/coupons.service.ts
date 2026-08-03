@@ -58,9 +58,9 @@ export class CouponsService implements OnModuleInit {
     const code = String(dto?.code || '')
       .trim()
       .toUpperCase();
-    if (!code) throw new BadRequestException('Codigo obrigatorio.');
+    if (!code) throw new BadRequestException('Código obrigatório.');
     if (await this.coupons.existsBy({ code }))
-      throw new ConflictException('Cupom ja existe.');
+      throw new ConflictException('Cupom já existe.');
     const data: CouponRecord = {
       code,
       pct: Math.min(90, Math.max(0, Number(dto?.pct) || 0)),
@@ -92,7 +92,7 @@ export class CouponsService implements OnModuleInit {
       .trim()
       .toUpperCase();
     const row = await this.coupons.findOneBy({ code });
-    if (!row) throw new NotFoundException('Cupom nao encontrado.');
+    if (!row) throw new NotFoundException('Cupom não encontrado.');
     const allowed = [
       'pct',
       'active',
@@ -122,7 +122,7 @@ export class CouponsService implements OnModuleInit {
       .trim()
       .toUpperCase();
     const row = await this.coupons.findOneBy({ code });
-    if (!row) throw new NotFoundException('Cupom invalido.');
+    if (!row) throw new NotFoundException('Cupom inválido.');
     const coupon = this.toRecord(row);
     if (!coupon.active) throw new BadRequestException('Cupom pausado.');
     if (coupon.expiresAt && Date.now() > coupon.expiresAt)

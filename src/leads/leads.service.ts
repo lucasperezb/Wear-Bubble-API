@@ -20,7 +20,7 @@ export class LeadsService {
       .trim()
       .toLowerCase();
     if (!email || !email.includes('@'))
-      throw new BadRequestException('E-mail invalido.');
+      throw new BadRequestException('E-mail inválido.');
     const hash = sha256(email);
     if (!(await this.leads.existsBy({ hash }))) {
       await this.leads.save(

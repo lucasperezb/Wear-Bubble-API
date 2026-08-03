@@ -113,7 +113,7 @@ export class MelhorEnvioService {
   async quote(dto: ShippingQuoteDto) {
     if (this.config.melhorEnvioOriginPostalCode.length !== 8) {
       throw new ServiceUnavailableException(
-        'CEP de origem do Melhor Envio nao configurado.',
+        'CEP de origem do Melhor Envio não configurado.',
       );
     }
     const products: Array<{
@@ -128,7 +128,7 @@ export class MelhorEnvioService {
     for (const item of dto.items) {
       const row = await this.products.findEntity(item.pid);
       if (!row || !row.active) {
-        throw new BadRequestException(`Produto ${item.pid} indisponivel.`);
+        throw new BadRequestException(`Produto ${item.pid} indisponível.`);
       }
       products.push({
         id: String(row.id),
@@ -154,7 +154,7 @@ export class MelhorEnvioService {
     );
     if (!Array.isArray(response)) {
       throw new ServiceUnavailableException(
-        'O Melhor Envio retornou uma cotacao invalida.',
+        'O Melhor Envio retornou uma cotação inválida.',
       );
     }
     return (response as MelhorEnvioQuoteApiOption[])
@@ -164,8 +164,7 @@ export class MelhorEnvioService {
       )
       .sort(
         (a, b) =>
-          Number(a.custom_price ?? a.price) -
-          Number(b.custom_price ?? b.price),
+          Number(a.custom_price ?? a.price) - Number(b.custom_price ?? b.price),
       )
       .map((option) => {
         const carrierPrice = Number(option.custom_price ?? option.price);
@@ -220,7 +219,7 @@ export class MelhorEnvioService {
       };
     } catch {
       throw new BadRequestException(
-        'A cotacao de frete expirou. Calcule novamente.',
+        'A cotação de frete expirou. Calcule novamente.',
       );
     }
   }
@@ -240,7 +239,7 @@ export class MelhorEnvioService {
       }
     } catch {
       throw new UnauthorizedException(
-        'Autorizacao do Melhor Envio expirada ou invalida.',
+        'Autorização do Melhor Envio expirada ou inválida.',
       );
     }
   }
@@ -261,7 +260,7 @@ export class MelhorEnvioService {
       });
     } catch {
       throw new ServiceUnavailableException(
-        'Nao foi possivel acessar o Melhor Envio.',
+        'Não foi possível acessar o Melhor Envio.',
       );
     }
     const data = (await response
@@ -272,12 +271,12 @@ export class MelhorEnvioService {
         data.error_description ||
           data.message ||
           data.error ||
-          'O Melhor Envio recusou a autorizacao.',
+          'O Melhor Envio recusou a autorização.',
       );
     }
     if (!data.access_token || !data.refresh_token) {
       throw new ServiceUnavailableException(
-        'O Melhor Envio nao retornou os tokens esperados.',
+        'O Melhor Envio não retornou os tokens esperados.',
       );
     }
     return data;
@@ -317,7 +316,7 @@ export class MelhorEnvioService {
   private decrypt(value: string) {
     const [version, iv, tag, ciphertext] = value.split('.');
     if (version !== 'v1' || !iv || !tag || !ciphertext) {
-      throw new ServiceUnavailableException('Token do Melhor Envio invalido.');
+      throw new ServiceUnavailableException('Token do Melhor Envio inválido.');
     }
     const decipher = createDecipheriv(
       'aes-256-gcm',
@@ -335,7 +334,7 @@ export class MelhorEnvioService {
     const credential = await this.credentials.findOneBy({ id: CREDENTIAL_ID });
     if (!credential) {
       throw new ServiceUnavailableException(
-        'Melhor Envio ainda nao foi autorizado.',
+        'Melhor Envio ainda não foi autorizado.',
       );
     }
     const response = await fetch(`${this.config.melhorEnvioBaseUrl}${path}`, {
@@ -355,7 +354,7 @@ export class MelhorEnvioService {
       throw new ServiceUnavailableException(
         this.melhorEnvioError(
           data,
-          'Nao foi possivel calcular o frete no Melhor Envio.',
+          'Não foi possível calcular o frete no Melhor Envio.',
         ),
       );
     }
@@ -376,7 +375,7 @@ export class MelhorEnvioService {
   private encryptionKey() {
     if (!this.config.melhorEnvioTokenEncryptionKey) {
       throw new ServiceUnavailableException(
-        'MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY nao configurada.',
+        'MELHOR_ENVIO_TOKEN_ENCRYPTION_KEY não configurada.',
       );
     }
     return createHash('sha256')
@@ -391,7 +390,7 @@ export class MelhorEnvioService {
       !this.config.melhorEnvioRedirectUri
     ) {
       throw new ServiceUnavailableException(
-        'Credenciais do Melhor Envio nao configuradas no backend.',
+        'Credenciais do Melhor Envio não configuradas no backend.',
       );
     }
     this.encryptionKey();

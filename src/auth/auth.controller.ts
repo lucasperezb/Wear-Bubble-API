@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
+import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';
 import { RequestLoginCodeDto } from './dto/request-login-code.dto';
 import { VerifyLoginCodeDto } from './dto/verify-login-code.dto';
 
@@ -62,6 +63,11 @@ export class AuthController {
 
   @Post('password-reset')
   passwordReset(@Body() dto: PasswordResetDto) {
-    return this.auth.passwordReset(dto.email);
+    return this.auth.requestPasswordReset(dto.email);
+  }
+
+  @Post('password-reset/confirm')
+  confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) {
+    return this.auth.confirmPasswordReset(dto.token, dto.password);
   }
 }

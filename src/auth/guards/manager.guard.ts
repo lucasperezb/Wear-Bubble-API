@@ -11,7 +11,7 @@ import { Request } from 'express';
 export class ManagerGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
-    if (!req.user) throw new UnauthorizedException('Login necessario.');
+    if (!req.user) throw new UnauthorizedException('Login necessário.');
     if (req.user.role !== 'manager')
       throw new ForbiddenException('Acesso restrito ao gerente.');
     return true;

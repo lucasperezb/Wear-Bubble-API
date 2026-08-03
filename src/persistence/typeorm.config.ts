@@ -5,6 +5,7 @@ import { DeletionReportEntity } from '../account/entities/deletion-report.entity
 import { AddressEntity } from '../account/entities/address.entity';
 import { UserEntity } from '../users/entities/user.entity';
 import { LoginCodeEntity } from '../auth/entities/login-code.entity';
+import { PasswordResetTokenEntity } from '../auth/entities/password-reset-token.entity';
 import { CouponEntity } from '../coupons/entities/coupon.entity';
 import { EventEntity } from '../events/entities/event.entity';
 import { LeadEntity } from '../leads/entities/lead.entity';
@@ -38,6 +39,7 @@ const ormconfig: DataSourceOptions = {
   entities: [
     UserEntity,
     LoginCodeEntity,
+    PasswordResetTokenEntity,
     ProfileEntity,
     AddressEntity,
     DeletionReportEntity,

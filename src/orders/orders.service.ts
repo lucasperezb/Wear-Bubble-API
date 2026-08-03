@@ -46,7 +46,7 @@ export class OrdersService {
   ): Promise<OrderRecord> {
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
-    const method = dto?.method === 'Pix' ? 'Pix' : 'Cartao de credito';
+    const method = dto?.method === 'Pix' ? 'Pix' : 'Cartão de crédito';
     const bundleCounts = new Map<string, number>();
     for (const item of items)
       if (item.bundle)
@@ -61,31 +61,37 @@ export class OrdersService {
       if (!product)
         throw new BadRequestException(`Produto ${item.pid} inexistente.`);
       if (!product.active)
-        throw new BadRequestException(`${product.name} indisponivel.`);
+        throw new BadRequestException(`${product.name} indisponível.`);
       const qty = Math.max(
         1,
         Math.min(10, parseInt(String(item.qty), 10) || 1),
       );
-      const size = String(item.size || 'U').trim().toUpperCase();
+      const size = String(item.size || 'U')
+        .trim()
+        .toUpperCase();
       const color = String(item.color || '').trim();
       if (!product.sizes.includes(size))
         throw new BadRequestException(
-          `Tamanho ${size} indisponivel para ${product.name}.`,
+          `Tamanho ${size} indisponível para ${product.name}.`,
         );
       const hasVariantStock = product.colors.some(
         (option) => (option.sizes || []).length > 0,
       );
       const selectedColor = product.colors.find(
-        (option) => option.n.toLocaleLowerCase('pt-BR') === color.toLocaleLowerCase('pt-BR'),
+        (option) =>
+          option.n.toLocaleLowerCase('pt-BR') ===
+          color.toLocaleLowerCase('pt-BR'),
       );
       const variantQuantity = selectedColor?.sizes?.find(
         (option) => option.size.toUpperCase() === size,
       )?.q;
       if (hasVariantStock && (!selectedColor || variantQuantity === undefined))
         throw new BadRequestException(
-          `Selecione uma cor e tamanho disponiveis para ${product.name}.`,
+          `Selecione uma cor e tamanho disponíveis para ${product.name}.`,
         );
-      const available = hasVariantStock ? Number(variantQuantity) || 0 : product.stock;
+      const available = hasVariantStock
+        ? Number(variantQuantity) || 0
+        : product.stock;
       if (available < qty)
         throw new BadRequestException(
           `Estoque insuficiente de ${product.name} na cor ${selectedColor?.n || color}, tamanho ${size}.`,
@@ -118,7 +124,7 @@ export class OrdersService {
       coupon = await this.coupons.getActive(couponCode);
       if (coupon.minSubtotal && subtotal < coupon.minSubtotal)
         throw new BadRequestException(
-          `Cupom exige compra minima de R$ ${coupon.minSubtotal}.`,
+          `O cupom exige uma compra mínima de R$ ${coupon.minSubtotal}.`,
         );
       couponPct = Math.min(90, Math.max(0, Number(coupon.pct) || 0));
       subtotal *= 1 - couponPct / 100;
@@ -221,7 +227,7 @@ export class OrdersService {
 
   async ship(id: string, dto: ShipOrderDto) {
     const row = await this.orders.findOneBy({ id });
-    if (!row) throw new NotFoundException('Pedido nao encontrado.');
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
     const previousStage = row.shipStage;
     const previousTracking = row.tracking;
     row.shipStage = Math.max(

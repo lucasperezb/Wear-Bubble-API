@@ -80,7 +80,7 @@ export class ProductsService implements OnModuleInit {
 
   async update(id: number, dto: UpdateProductDto) {
     const row = await this.products.findOneBy({ id });
-    if (!row) throw new NotFoundException('Produto nao encontrado.');
+    if (!row) throw new NotFoundException('Produto não encontrado.');
     const allowed = [
       'name',
       'cat',
@@ -156,7 +156,7 @@ export class ProductsService implements OnModuleInit {
     });
     if (existing.length + files.length > 8)
       throw new BadRequestException(
-        'Cada produto pode ter no maximo 8 imagens.',
+        'Cada produto pode ter no máximo 8 imagens.',
       );
 
     const uploaded: Array<{ path: string; url: string }> = [];
@@ -227,8 +227,7 @@ export class ProductsService implements OnModuleInit {
     }
     await this.normalizePositions(productId);
     await this.syncLegacyImage(productId);
-    if (image.storagePath)
-      await this.imageStorage.remove([image.storagePath]);
+    if (image.storagePath) await this.imageStorage.remove([image.storagePath]);
     return this.getRecord(productId);
   }
 
@@ -268,9 +267,7 @@ export class ProductsService implements OnModuleInit {
           })),
         })),
       desc: row.desc,
-      image:
-        this.sortedImages(row)[0]?.url ||
-        row.image,
+      image: this.sortedImages(row)[0]?.url || row.image,
       images: this.sortedImages(row).map((image) => ({
         id: image.id,
         url: image.url,
@@ -325,26 +322,28 @@ export class ProductsService implements OnModuleInit {
   private variantStock(colors: ProductRecord['colors']) {
     const entries = colors.flatMap((color) => color.sizes || []);
     if (!entries.length) return null;
-    return entries.reduce((total, item) => total + Math.max(0, Number(item.q) || 0), 0);
+    return entries.reduce(
+      (total, item) => total + Math.max(0, Number(item.q) || 0),
+      0,
+    );
   }
 
   private sortedImages(row: ProductEntity) {
     return [...(row.images || [])].sort(
       (a, b) =>
-        Number(b.isPrimary) - Number(a.isPrimary) ||
-        a.position - b.position,
+        Number(b.isPrimary) - Number(a.isPrimary) || a.position - b.position,
     );
   }
 
   private async getProductOrThrow(id: number) {
     const product = await this.products.findOneBy({ id });
-    if (!product) throw new NotFoundException('Produto nao encontrado.');
+    if (!product) throw new NotFoundException('Produto não encontrado.');
     return product;
   }
 
   private async getOwnedImage(productId: number, imageId: string) {
     const image = await this.images.findOneBy({ id: imageId, productId });
-    if (!image) throw new NotFoundException('Imagem nao encontrada.');
+    if (!image) throw new NotFoundException('Imagem não encontrada.');
     return image;
   }
 

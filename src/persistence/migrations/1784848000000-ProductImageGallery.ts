@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class ProductImageGallery1784848000000
-  implements MigrationInterface
-{
+export class ProductImageGallery1784848000000 implements MigrationInterface {
   name = 'ProductImageGallery1784848000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {

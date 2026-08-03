@@ -23,7 +23,7 @@ export class ShippingQuoteItemDto {
 }
 
 export class ShippingQuoteDto {
-  @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP de destino invalido.' })
+  @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP de destino inválido.' })
   postalCode: string;
 
   @IsArray()

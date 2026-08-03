@@ -110,6 +110,21 @@ GET https://api.wearbubble.com.br/api/payment/public-key
 O segundo endpoint deve responder com `publicKey` e
 `environment: "production"`, sem expor o token secreto.
 
+### Cancelamento pelo painel
+
+Pedidos pagos pelo PagBank podem ser estornados integralmente pelo gerente em:
+
+```text
+POST /api/payment/orders/:orderId/cancel
+```
+
+A API envia o valor total em centavos para
+`POST /charges/:chargeId/cancel` no ambiente configurado pelo
+`PAGBANK_ENV`. O pedido local somente muda para `canceled` após uma resposta
+de sucesso do PagBank. Os eventos `pagbank.cancel.request` e
+`pagbank.cancel.response` são registrados sem o token de autorização para
+auxiliar na homologação.
+
 ## Qualidade
 
 ```bash

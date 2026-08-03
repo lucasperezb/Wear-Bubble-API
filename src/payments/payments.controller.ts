@@ -3,14 +3,17 @@ import {
   Controller,
   Get,
   Headers,
+  ParseUUIDPipe,
   Post,
   Param,
-  ParseUUIDPipe,
   Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiHeader, ApiTags } from '@nestjs/swagger';
+import { ApiForbiddenResponse, ApiHeader, ApiTags } from '@nestjs/swagger';
+import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { ManagerGuard } from '../auth/guards/manager.guard';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { PaymentWebhookDto } from './dto/payment-webhook.dto';
 import { PaymentsService } from './payments.service';
@@ -36,6 +39,14 @@ export class PaymentsController {
     @Body() dto: CreateCheckoutDto,
   ) {
     return this.payments.checkout(user, dto);
+  }
+
+  @Post('orders/:orderId/cancel')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  cancelOrder(@Param('orderId', ParseUUIDPipe) orderId: string) {
+    return this.payments.cancelOrder(orderId);
   }
 
   @Post('webhook/pagbank')

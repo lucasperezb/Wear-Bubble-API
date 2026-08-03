@@ -14,7 +14,7 @@ export class CreateAddressDto {
 
   @IsString()
   @MaxLength(12)
-  @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP invalido.' })
+  @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP inválido.' })
   cep: string;
 
   @IsString()
@@ -40,7 +40,7 @@ export class CreateAddressDto {
 
   @IsString()
   @MaxLength(2)
-  @Matches(/^[A-Z]{2}$/, { message: 'Estado deve conter uma UF valida.' })
+  @Matches(/^[A-Z]{2}$/, { message: 'Estado deve conter uma UF válida.' })
   state: string;
 
   @IsOptional()

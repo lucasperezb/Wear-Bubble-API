@@ -36,7 +36,7 @@ export class MelhorEnvioController {
   @Get('oauth/callback')
   callback(@Query('code') code?: string, @Query('state') state?: string) {
     if (!code || !state) {
-      throw new BadRequestException('Code e state sao obrigatorios.');
+      throw new BadRequestException('Code e state são obrigatórios.');
     }
     return this.melhorEnvio.completeAuthorization(code, state);
   }

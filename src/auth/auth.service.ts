@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import {
   createHash,
   createHmac,
+  randomBytes,
   randomInt,
   randomUUID,
   timingSafeEqual,
@@ -28,6 +29,7 @@ import { RegisterDto } from './dto/register.dto';
 import { RequestLoginCodeDto } from './dto/request-login-code.dto';
 import { VerifyLoginCodeDto } from './dto/verify-login-code.dto';
 import { LoginCodeEntity } from './entities/login-code.entity';
+import { PasswordResetTokenEntity } from './entities/password-reset-token.entity';
 
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -45,6 +47,8 @@ export class AuthService {
     private readonly leads: Repository<LeadEntity>,
     @InjectRepository(LoginCodeEntity)
     private readonly loginCodes: Repository<LoginCodeEntity>,
+    @InjectRepository(PasswordResetTokenEntity)
+    private readonly passwordResetTokens: Repository<PasswordResetTokenEntity>,
   ) {}
 
   async register(dto: RegisterDto, res: Response) {
@@ -56,10 +60,10 @@ export class AuthService {
     const marketing = Boolean(dto?.marketing);
     if (!name || !email || password.length < 6)
       throw new BadRequestException(
-        'Nome, e-mail e senha (min. 6 caracteres) sao obrigatorios.',
+        'Nome, e-mail e senha (mín. de 6 caracteres) são obrigatórios.',
       );
     if (await this.users.existsByEmail(email)) {
-      throw new ConflictException('Ja existe uma conta com este e-mail.');
+      throw new ConflictException('Já existe uma conta com este e-mail.');
     }
     const uid = randomUUID();
     const role: UserRecord['role'] =
@@ -139,7 +143,7 @@ export class AuthService {
   async verifyLoginCode(dto: VerifyLoginCodeDto, res: Response) {
     const email = this.normalizeEmail(dto.email);
     const user = await this.users.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Codigo invalido ou expirado.');
+    if (!user) throw new UnauthorizedException('Código inválido ou expirado.');
 
     const loginCode = await this.loginCodes.findOne({
       where: {
@@ -150,7 +154,7 @@ export class AuthService {
       order: { createdAt: 'DESC' },
     });
     if (!loginCode || loginCode.attempts >= 5)
-      throw new UnauthorizedException('Codigo invalido ou expirado.');
+      throw new UnauthorizedException('Código inválido ou expirado.');
 
     const received = Buffer.from(this.hashLoginCode(user.uid, dto.code));
     const expected = Buffer.from(loginCode.codeHash);
@@ -160,7 +164,7 @@ export class AuthService {
     loginCode.attempts += 1;
     if (valid || loginCode.attempts >= 5) loginCode.usedAt = new Date();
     await this.loginCodes.save(loginCode);
-    if (!valid) throw new UnauthorizedException('Codigo invalido ou expirado.');
+    if (!valid) throw new UnauthorizedException('Código inválido ou expirado.');
 
     if (!user.emailVerified) {
       user.emailVerified = true;
@@ -187,13 +191,92 @@ export class AuthService {
     return { uid, email, role, name: profile?.name || '', emailVerified: true };
   }
 
-  passwordReset(emailValue: string) {
-    const email = String(emailValue || '')
-      .trim()
-      .toLowerCase();
-    if (email)
-      console.log(`[auth] pedido de redefinicao de senha para ${email}`);
-    return { ok: true };
+  async requestPasswordReset(emailValue: string) {
+    const email = this.normalizeEmail(emailValue);
+    const response = {
+      ok: true,
+      message:
+        'Se houver uma conta com este e-mail, enviaremos um link para redefinir a senha.',
+    };
+    const user = await this.users.findByEmail(email);
+    if (!user) return response;
+
+    const latest = await this.passwordResetTokens.findOne({
+      where: { userUid: user.uid },
+      order: { createdAt: 'DESC' },
+    });
+    if (
+      latest &&
+      !latest.usedAt &&
+      Date.now() - latest.createdAt.getTime() < 60_000
+    ) {
+      return response;
+    }
+
+    await this.passwordResetTokens.update(
+      { userUid: user.uid, usedAt: IsNull() },
+      { usedAt: new Date() },
+    );
+    const token = randomBytes(32).toString('hex');
+    const resetToken = await this.passwordResetTokens.save(
+      this.passwordResetTokens.create({
+        userUid: user.uid,
+        tokenHash: sha256(token),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        usedAt: null,
+      }),
+    );
+    const resetUrl = `${this.config.storeUrl.replace(/\/$/, '')}/redefinir-senha?token=${encodeURIComponent(token)}`;
+    try {
+      await this.emailSender.sendPasswordReset(user.email, resetUrl);
+    } catch (error) {
+      await this.passwordResetTokens.delete({ id: resetToken.id });
+      console.error(
+        `[auth] falha ao enviar redefinição de senha para ${user.uid}`,
+        error,
+      );
+    }
+    return response;
+  }
+
+  async confirmPasswordReset(tokenValue: string, passwordValue: string) {
+    const token = String(tokenValue || '').trim();
+    const password = String(passwordValue || '');
+    if (!/^[a-f0-9]{64}$/i.test(token) || password.length < 6) {
+      throw new BadRequestException(
+        'Link inválido ou expirado. Solicite uma nova redefinição de senha.',
+      );
+    }
+
+    const resetToken = await this.passwordResetTokens.findOne({
+      where: {
+        tokenHash: sha256(token),
+        usedAt: IsNull(),
+        expiresAt: MoreThan(new Date()),
+      },
+    });
+    if (!resetToken) {
+      throw new BadRequestException(
+        'Link inválido ou expirado. Solicite uma nova redefinição de senha.',
+      );
+    }
+
+    const user = await this.users.findByUid(resetToken.userUid);
+    if (!user) {
+      throw new BadRequestException(
+        'Link inválido ou expirado. Solicite uma nova redefinição de senha.',
+      );
+    }
+
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.emailVerified = true;
+    resetToken.usedAt = new Date();
+    await this.users.save(user);
+    await this.passwordResetTokens.update(
+      { userUid: user.uid, usedAt: IsNull() },
+      { usedAt: resetToken.usedAt },
+    );
+    return { ok: true, message: 'Senha redefinida com sucesso.' };
   }
 
   private normalizeEmail(value: string) {

@@ -38,16 +38,35 @@ export class EmailService {
     const verification = purpose === 'verification';
     await this.send({
       to: email,
-      subject: `${code} e o seu codigo de ${verification ? 'verificacao' : 'acesso'} Wear Bubble`,
+      subject: `${code} é o seu código de ${verification ? 'verificação' : 'acesso'} Wear Bubble`,
       content: this.layout(
-        verification ? 'Confirme seu e-mail' : 'Seu codigo de acesso',
+        verification ? 'Confirme seu e-mail' : 'Seu código de acesso',
         `<p style="font-size:32px;font-weight:700;letter-spacing:8px;margin:24px 0">${code}</p>
-         <p>${verification ? 'Use este codigo para confirmar seu e-mail e ativar sua conta.' : 'Use este codigo para entrar na sua conta.'}</p>
-         <p>Ele expira em 10 minutos e pode ser usado uma unica vez.</p>
-         <p style="color:#6f6a60">Se voce nao solicitou este codigo, ignore esta mensagem.</p>`,
+         <p>${verification ? 'Use este código para confirmar seu e-mail e ativar sua conta.' : 'Use este código para entrar na sua conta.'}</p>
+         <p>Ele expira em 10 minutos e pode ser usado uma única vez.</p>
+         <p style="color:#6f6a60">Se você não solicitou este código, ignore esta mensagem.</p>`,
       ),
       tag: verification ? 'email-verification' : 'login-code',
       idempotencyKey: `${purpose}-${email}-${code}`,
+    });
+  }
+
+  async sendPasswordReset(email: string, resetUrl: string) {
+    const safeUrl = this.escape(resetUrl);
+    await this.send({
+      to: email,
+      subject: 'Redefina sua senha da Wear Bubble',
+      content: this.layout(
+        'Redefinição de senha',
+        `<p>Recebemos uma solicitação para redefinir a senha da sua conta.</p>
+         <p style="margin:28px 0">
+           <a href="${safeUrl}" style="display:inline-block;background:#171410;color:#ffffff;padding:14px 24px;text-decoration:none;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Redefinir minha senha</a>
+         </p>
+         <p>Este link expira em 30 minutos e pode ser usado uma única vez.</p>
+         <p style="color:#6f6a60">Se você não solicitou a redefinição, ignore esta mensagem. Sua senha continuará a mesma.</p>`,
+      ),
+      tag: 'password-reset',
+      idempotencyKey: `password-reset-${email}-${Date.now()}`,
     });
   }
 
@@ -59,9 +78,9 @@ export class EmailService {
       subject: `Recebemos o pedido ${order.number}`,
       content: this.layout(
         'Pedido recebido',
-        `<p>O pedido <strong>${this.escape(order.number)}</strong> foi criado e esta aguardando a confirmacao do pagamento.</p>
+        `<p>O pedido <strong>${this.escape(order.number)}</strong> foi criado e está aguardando a confirmação do pagamento.</p>
          ${this.orderSummary(order)}
-         <p>Assim que o pagamento for confirmado, voce recebera outro e-mail.</p>`,
+         <p>Assim que o pagamento for confirmado, você receberá outro e-mail.</p>`,
       ),
       tag: 'order-created',
       idempotencyKey: `order-created-${order.id}`,
@@ -78,7 +97,7 @@ export class EmailService {
         'Pagamento confirmado',
         `<p>O pagamento do pedido <strong>${this.escape(order.number)}</strong> foi confirmado.</p>
          ${this.orderSummary(order)}
-         <p>Agora vamos preparar suas pecas para o envio.</p>`,
+         <p>Agora vamos preparar suas peças para o envio.</p>`,
       ),
       tag: 'payment-confirmed',
       idempotencyKey: `payment-confirmed-${order.id}`,
@@ -88,17 +107,17 @@ export class EmailService {
   async sendShippingUpdate(order: OrderRecord) {
     if (!order.delivery?.email) return;
     const tracking = order.tracking
-      ? `<p>Codigo de rastreio: <strong>${this.escape(order.tracking)}</strong></p>`
+      ? `<p>Código de rastreio: <strong>${this.escape(order.tracking)}</strong></p>`
       : '';
     await this.safeSend({
       to: order.delivery.email,
       name: order.delivery.name,
-      subject: `Atualizacao do envio · ${order.number}`,
+      subject: `Atualização do envio · ${order.number}`,
       content: this.layout(
         'Seu pedido foi atualizado',
-        `<p>O pedido <strong>${this.escape(order.number)}</strong> avancou para a etapa ${order.shipStage} de 5.</p>
+        `<p>O pedido <strong>${this.escape(order.number)}</strong> avançou para a etapa ${order.shipStage} de 5.</p>
          ${tracking}
-         <p>Voce pode acompanhar os detalhes entrando na sua conta Bubble.</p>`,
+         <p>Você pode acompanhar os detalhes entrando na sua conta Bubble.</p>`,
       ),
       tag: 'shipping-update',
       idempotencyKey: `shipping-${order.id}-${order.shipStage}-${order.tracking || 'none'}`,
@@ -144,7 +163,7 @@ export class EmailService {
       return { messageId: result.messageId };
     } catch {
       throw new ServiceUnavailableException(
-        'Nao foi possivel enviar o e-mail.',
+        'Não foi possível enviar o e-mail.',
       );
     }
   }

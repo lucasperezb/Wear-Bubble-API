@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -27,6 +28,7 @@ import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.se
 @Injectable()
 export class PaymentsService {
   private cachedPublicKey = '';
+  private readonly logger = new Logger(PaymentsService.name);
 
   constructor(
     private readonly config: AppConfigService,
@@ -44,7 +46,7 @@ export class PaymentsService {
   async publicKey() {
     if (!this.config.pagbankToken)
       throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN nao configurado no backend.',
+        'PAGBANK_TOKEN não configurado no backend.',
       );
     if (this.config.pagbankPublicKey)
       return {
@@ -84,14 +86,14 @@ export class PaymentsService {
     >;
     if (!response.ok)
       throw new ServiceUnavailableException(
-        this.pagbankError(data, 'Nao foi possivel obter a chave publica.'),
+        this.pagbankError(data, 'Não foi possível obter a chave pública.'),
       );
     this.cachedPublicKey = String(
       data.public_key || data.publicKey || data.key || '',
     );
     if (!this.cachedPublicKey)
       throw new ServiceUnavailableException(
-        'PagBank nao retornou a chave publica.',
+        'PagBank não retornou a chave pública.',
       );
     return {
       publicKey: this.cachedPublicKey,
@@ -147,26 +149,119 @@ export class PaymentsService {
     };
   }
 
+  async cancelOrder(orderId: string) {
+    const orderRow = await this.orders.findEntity(orderId);
+    if (!orderRow) throw new BadRequestException('Pedido inexistente.');
+    if (orderRow.status === 'canceled') {
+      return {
+        order: this.orders.toRecord(orderRow),
+        cancellation: {
+          alreadyCanceled: true,
+          chargeId: orderRow.pagbankPaymentId,
+          status: 'CANCELED',
+        },
+      };
+    }
+    if (orderRow.status !== 'paid')
+      throw new BadRequestException(
+        'Somente pedidos com pagamento confirmado podem ser cancelados.',
+      );
+    if (orderRow.gateway !== 'pagbank' || !orderRow.pagbankPaymentId)
+      throw new BadRequestException(
+        'Pedido sem identificador de cobrança do PagBank.',
+      );
+    if (!this.config.pagbankToken)
+      throw new ServiceUnavailableException(
+        'PAGBANK_TOKEN não configurado no backend.',
+      );
+
+    const chargeId = orderRow.pagbankPaymentId;
+    const amount = Math.round(Number(orderRow.total) * 100);
+    const url = `${this.config.pagbankBaseUrl}/charges/${encodeURIComponent(chargeId)}/cancel`;
+    const payload = { amount: { value: amount } };
+    this.logger.log(
+      JSON.stringify({
+        event: 'pagbank.cancel.request',
+        environment: this.config.pagbankEnv,
+        method: 'POST',
+        url,
+        body: payload,
+      }),
+    );
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${this.config.pagbankToken}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-idempotency-key': `${orderRow.id}-cancel`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = (await response.json().catch(() => ({}))) as Record<
+      string,
+      any
+    >;
+    const cancellation = {
+      responseStatus: response.status,
+      chargeId: String(data?.id || chargeId),
+      status: String(data?.status || '').toUpperCase(),
+      amount: data?.amount || payload.amount,
+      summary: data?.summary || null,
+    };
+    this.logger.log(
+      JSON.stringify({
+        event: 'pagbank.cancel.response',
+        environment: this.config.pagbankEnv,
+        ...cancellation,
+      }),
+    );
+    if (!response.ok)
+      throw new ServiceUnavailableException(
+        this.pagbankError(
+          data,
+          'Não foi possível cancelar a cobrança no PagBank.',
+        ),
+      );
+
+    const order = this.orders.toRecord(orderRow);
+    for (const line of order.items || []) {
+      const productRow = await this.products.findEntity(Number(line.pid));
+      if (productRow) {
+        productRow.stock = Math.max(0, productRow.stock + line.qty);
+        await this.products.saveEntity(productRow);
+      }
+    }
+    orderRow.status = 'canceled';
+    await this.orders.saveEntity(orderRow);
+
+    return {
+      order: this.orders.toRecord(orderRow),
+      cancellation,
+    };
+  }
+
   async checkout(user: AuthenticatedUser | undefined, dto: CreateCheckoutDto) {
     if (!this.config.pagbankToken)
       throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN nao configurado no backend.',
+        'PAGBANK_TOKEN não configurado no backend.',
       );
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
     const method = this.normalizeMethod(dto.method);
     if (method !== 'Pix' && !dto.encryptedCard)
       throw new BadRequestException(
-        'Os dados criptografados do cartao sao obrigatorios.',
+        'Os dados criptografados do cartão são obrigatórios.',
       );
     if (dto.existingOrderId) {
       if (method === 'Pix')
-        throw new BadRequestException('Este Pix ja foi gerado.');
+        throw new BadRequestException('Este Pix já foi gerado.');
       return this.payExistingOrderWithCard(dto);
     }
     const customer = await this.resolveCustomer(user, dto.customer);
     if (!dto.shippingQuoteToken)
-      throw new BadRequestException('Selecione uma opcao de entrega.');
+      throw new BadRequestException('Selecione uma opção de entrega.');
     const shipping = this.melhorEnvio.verifyQuoteToken(
       dto.shippingQuoteToken,
       customer.delivery.cep,
@@ -209,7 +304,7 @@ export class PaymentsService {
         throw new ServiceUnavailableException(
           this.pagbankError(
             data,
-            'Nao foi possivel processar o pagamento no PagBank.',
+            'Não foi possível processar o pagamento no PagBank.',
           ),
         );
       }
@@ -237,7 +332,7 @@ export class PaymentsService {
         const qrCode = Array.isArray(data?.qr_codes) ? data.qr_codes[0] : null;
         if (!qrCode?.text)
           throw new ServiceUnavailableException(
-            'PagBank nao retornou o codigo Pix.',
+            'PagBank não retornou o código Pix.',
           );
         const links = Array.isArray(qrCode.links) ? qrCode.links : [];
         const image = links.find(
@@ -275,7 +370,7 @@ export class PaymentsService {
         message:
           charge?.payment_response?.message ||
           (charge?.status === 'DECLINED'
-            ? 'Pagamento nao autorizado.'
+            ? 'Pagamento não autorizado.'
             : 'Pagamento processado.'),
         pagbankCheckoutId: data?.id || null,
       };
@@ -288,9 +383,9 @@ export class PaymentsService {
   private async payExistingOrderWithCard(dto: CreateCheckoutDto) {
     const orderRow = await this.orders.findEntity(dto.existingOrderId!);
     if (!orderRow || !orderRow.pagbankCheckoutId)
-      throw new BadRequestException('Pedido pendente nao encontrado.');
+      throw new BadRequestException('Pedido pendente não encontrado.');
     if (orderRow.status !== 'pending')
-      throw new BadRequestException('Este pedido nao esta mais pendente.');
+      throw new BadRequestException('Este pedido não está mais pendente.');
     const order = this.orders.toRecord(orderRow);
     const cardTotal =
       order.method === 'Pix'
@@ -323,7 +418,7 @@ export class PaymentsService {
       throw new ServiceUnavailableException(
         this.pagbankError(
           data,
-          'Nao foi possivel trocar o pagamento para cartao.',
+          'Não foi possível trocar o pagamento para cartão.',
         ),
       );
 
@@ -335,13 +430,13 @@ export class PaymentsService {
     const chargeStatus = String(charge?.status || 'WAITING').toUpperCase();
     orderRow.pagbankPaymentId = charge?.id || null;
     if (chargeStatus === 'PAID') {
-      orderRow.method = 'Cartao de credito';
+      orderRow.method = 'Cartão de crédito';
       orderRow.total = cardTotal;
       await this.markOrderPaid(orderRow, charge?.id || null);
     } else if (['DECLINED', 'CANCELED', 'CANCELLED'].includes(chargeStatus)) {
       await this.orders.saveEntity(orderRow);
     } else {
-      orderRow.method = 'Cartao de credito';
+      orderRow.method = 'Cartão de crédito';
       orderRow.total = cardTotal;
       await this.orders.saveEntity(orderRow);
     }
@@ -353,7 +448,7 @@ export class PaymentsService {
       message:
         charge?.payment_response?.message ||
         (chargeStatus === 'DECLINED'
-          ? 'Pagamento nao autorizado.'
+          ? 'Pagamento não autorizado.'
           : 'Pagamento processado.'),
       pagbankCheckoutId: orderRow.pagbankCheckoutId,
     };
@@ -513,7 +608,7 @@ export class PaymentsService {
 
     if (!input)
       throw new BadRequestException(
-        'Informe o e-mail e o endereco para continuar sem conta.',
+        'Informe o e-mail e o endereço para continuar sem conta.',
       );
     const delivery = this.normalizeDelivery(input);
     let user = await this.users.findByEmail(delivery.email);
@@ -588,11 +683,11 @@ export class PaymentsService {
       !delivery.state
     ) {
       throw new BadRequestException(
-        'Preencha os dados obrigatorios de entrega.',
+        'Preencha os dados obrigatórios de entrega.',
       );
     }
     if (!this.isValidCpf(delivery.taxId))
-      throw new BadRequestException('Informe um CPF valido.');
+      throw new BadRequestException('Informe um CPF válido.');
     return delivery;
   }
 
@@ -648,7 +743,7 @@ export class PaymentsService {
   private assertPagbankSignature(rawBody?: Buffer, signature?: string) {
     if (!this.config.pagbankToken)
       throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN nao configurado no backend.',
+        'PAGBANK_TOKEN não configurado no backend.',
       );
     if (!rawBody || !signature)
       throw new UnauthorizedException('Assinatura PagBank ausente.');
@@ -661,7 +756,7 @@ export class PaymentsService {
       expectedBuffer.length !== signatureBuffer.length ||
       !timingSafeEqual(expectedBuffer, signatureBuffer)
     ) {
-      throw new UnauthorizedException('Assinatura PagBank invalida.');
+      throw new UnauthorizedException('Assinatura PagBank inválida.');
     }
   }
 
@@ -699,7 +794,7 @@ export class PaymentsService {
       .toLowerCase()
       .includes('pix')
       ? 'Pix'
-      : 'Cartao de credito';
+      : 'Cartão de crédito';
   }
 
   private isPublicHttpUrl(value: string) {

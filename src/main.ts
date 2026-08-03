@@ -71,18 +71,12 @@ async function bootstrap() {
 
 void bootstrap();
 
-function validationMessages(
-  errors: ValidationError[],
-  parent = '',
-): string[] {
+function validationMessages(errors: ValidationError[], parent = ''): string[] {
   return errors.flatMap((error) => {
     const field = parent ? `${parent}.${error.property}` : error.property;
     const own = Object.values(error.constraints || {}).map(
       (message) => `${field}: ${message}`,
     );
-    return [
-      ...own,
-      ...validationMessages(error.children || [], field),
-    ];
+    return [...own, ...validationMessages(error.children || [], field)];
   });
 }

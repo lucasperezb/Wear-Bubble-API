@@ -5,7 +5,7 @@ export class UpdateAccountDto {
   @IsString()
   @MaxLength(150)
   @Matches(/^[\p{L}\s.'-]+$/u, {
-    message: 'Nome contem caracteres invalidos.',
+    message: 'Nome contém caracteres inválidos.',
   })
   name?: string;
 

@@ -22,7 +22,7 @@ export class ProductImageStorageService {
         'Envie imagens nos formatos JPEG, PNG ou WebP.',
       );
     if (!file.buffer?.length)
-      throw new BadRequestException('O arquivo de imagem esta vazio.');
+      throw new BadRequestException('O arquivo de imagem está vazio.');
 
     const client = this.client();
     await this.ensureBucket(client);
@@ -46,7 +46,7 @@ export class ProductImageStorageService {
       });
     if (error)
       throw new ServiceUnavailableException(
-        `Nao foi possivel armazenar a imagem: ${error.message}`,
+        `Não foi possível armazenar a imagem: ${error.message}`,
       );
     const { data } = client.storage
       .from(this.config.supabaseStorageBucket)
@@ -90,7 +90,7 @@ export class ProductImageStorageService {
       });
       if (createError && !createError.message.toLowerCase().includes('exist'))
         throw new ServiceUnavailableException(
-          `Nao foi possivel criar o bucket de imagens: ${createError.message}`,
+          `Não foi possível criar o bucket de imagens: ${createError.message}`,
         );
     } else if (!data.public) {
       const { error: updateError } = await client.storage.updateBucket(bucket, {
@@ -100,7 +100,7 @@ export class ProductImageStorageService {
       });
       if (updateError)
         throw new ServiceUnavailableException(
-          `Nao foi possivel publicar o bucket de imagens: ${updateError.message}`,
+          `Não foi possível publicar o bucket de imagens: ${updateError.message}`,
         );
     }
     this.bucketReady = true;
