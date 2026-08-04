@@ -68,6 +68,12 @@ async function bootstrap() {
   console.log(`Swagger: http://localhost:${env.port}/api/docs`);
   console.log(`Front-end autorizado: ${env.frontendOrigins.join(', ')}`);
   console.log(`Gerente: ${env.managerEmail}`);
+  console.log(
+    JSON.stringify({
+      event: 'asaas.config',
+      ...env.asaasApiKeyDiagnostics,
+    }),
+  );
 }
 
 void bootstrap();

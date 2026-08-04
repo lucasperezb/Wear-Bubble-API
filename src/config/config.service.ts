@@ -106,7 +106,24 @@ export class AppConfigService {
   get asaasApiKey() {
     return (this.config.get<string>('ASAAS_API_KEY') || '')
       .trim()
-      .replace(/^["']|["']$/g, '');
+      .replace(/^(["'])(.*)\1$/s, '$2')
+      .replace(/^\\(?=\$aact_)/, '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, '');
+  }
+
+  get asaasApiKeyDiagnostics() {
+    const key = this.asaasApiKey;
+    const expectedPrefix =
+      this.asaasEnv === 'production' ? '$aact_prod_' : '$aact_hmlg_';
+    return {
+      configured: Boolean(key),
+      environment: this.asaasEnv,
+      baseUrl: this.asaasBaseUrl,
+      expectedPrefix,
+      prefixValid: key.startsWith(expectedPrefix),
+      length: key.length,
+    };
   }
 
   get asaasEnv() {
