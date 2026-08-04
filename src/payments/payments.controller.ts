@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiForbiddenResponse, ApiHeader, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -23,11 +24,6 @@ import { PaymentsService } from './payments.service';
 export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
-  @Get('public-key')
-  publicKey() {
-    return this.payments.publicKey();
-  }
-
   @Get('status/:orderId')
   status(@Param('orderId', ParseUUIDPipe) orderId: string) {
     return this.payments.status(orderId);
@@ -37,8 +33,13 @@ export class PaymentsController {
   checkout(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Body() dto: CreateCheckoutDto,
+    @Req() req: Request,
   ) {
-    return this.payments.checkout(user, dto);
+    return this.payments.checkout(
+      user,
+      dto,
+      req.ip || req.socket.remoteAddress || '',
+    );
   }
 
   @Post('orders/:orderId/cancel')
@@ -49,17 +50,16 @@ export class PaymentsController {
     return this.payments.cancelOrder(orderId);
   }
 
-  @Post('webhook/pagbank')
+  @Post('webhook/asaas')
   @ApiHeader({
-    name: 'x-authenticity-token',
-    description: 'Assinatura SHA-256 enviada pelo PagBank.',
+    name: 'asaas-access-token',
+    description: 'Token de autenticação configurado no webhook do Asaas.',
     required: true,
   })
-  pagbankWebhook(
+  asaasWebhook(
     @Body() dto: PaymentWebhookDto,
-    @Req() req: { rawBody?: Buffer },
-    @Headers('x-authenticity-token') signature?: string,
+    @Headers('asaas-access-token') token?: string,
   ) {
-    return this.payments.pagbankWebhook(dto, req.rawBody, signature);
+    return this.payments.asaasWebhook(dto, token);
   }
 }

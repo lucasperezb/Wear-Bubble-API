@@ -1,51 +1,35 @@
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsBoolean,
-  IsOptional,
-  IsString,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
+import { IsOptional, IsString, ValidateNested } from 'class-validator';
 
-export class PaymentChargeDto {
+export class AsaasWebhookPaymentDto {
   @IsOptional()
   @IsString()
   id?: string;
 
   @IsOptional()
-  @IsUUID()
-  reference_id?: string;
+  @IsString()
+  externalReference?: string;
 
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  billingType?: string;
 }
 
 export class PaymentWebhookDto {
   @IsOptional()
-  @IsUUID()
-  orderId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  reference_id?: string;
-
-  @IsOptional()
   @IsString()
   id?: string;
 
   @IsOptional()
   @IsString()
-  status?: string;
+  event?: string;
 
   @IsOptional()
-  @IsBoolean()
-  paid?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PaymentChargeDto)
-  charges?: PaymentChargeDto[];
+  @ValidateNested()
+  @Type(() => AsaasWebhookPaymentDto)
+  payment?: AsaasWebhookPaymentDto;
 }

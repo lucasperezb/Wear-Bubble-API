@@ -13,6 +13,8 @@ import { PaymentsModule } from './payments/payments.module';
 import { ProductsModule } from './products/products.module';
 import { UsersModule } from './users/users.module';
 import { MelhorEnvioModule } from './integrations/melhor-envio/melhor-envio.module';
+import { ReturnsModule } from './returns/returns.module';
+import { CreditsModule } from './credits/credits.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { MelhorEnvioModule } from './integrations/melhor-envio/melhor-envio.modu
     AccountModule,
     PaymentsModule,
     MelhorEnvioModule,
+    ReturnsModule,
+    CreditsModule,
     AdminModule,
   ],
 })

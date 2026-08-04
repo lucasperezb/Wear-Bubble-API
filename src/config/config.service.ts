@@ -34,7 +34,7 @@ export class AppConfigService {
 
   get managerEmail() {
     return (
-      this.config.get<string>('MANAGER_EMAIL') || 'gerente@bubble.com.br'
+      this.config.get<string>('MANAGER_EMAIL') || 'gerente@wearbubble.com.br'
     ).toLowerCase();
   }
 
@@ -103,37 +103,37 @@ export class AppConfigService {
     return this.config.get<string>('STORE_URL') || this.frontendOrigin;
   }
 
-  get pagbankToken() {
-    return (this.config.get<string>('PAGBANK_TOKEN') || '')
+  get asaasApiKey() {
+    return (this.config.get<string>('ASAAS_API_KEY') || '')
       .trim()
       .replace(/^["']|["']$/g, '');
   }
 
-  get pagbankPublicKey() {
-    return (this.config.get<string>('PAGBANK_PUBLIC_KEY') || '').trim();
-  }
-
-  get pagbankEnv() {
-    return this.config.get('PAGBANK_ENV') === 'production'
+  get asaasEnv() {
+    return this.config.get('ASAAS_ENV') === 'production'
       ? 'production'
       : 'sandbox';
   }
 
-  get pagbankBaseUrl() {
-    return this.pagbankEnv === 'production'
-      ? 'https://api.pagseguro.com'
-      : 'https://sandbox.api.pagseguro.com';
+  get asaasBaseUrl() {
+    return this.asaasEnv === 'production'
+      ? 'https://api.asaas.com/v3'
+      : 'https://api-sandbox.asaas.com/v3';
   }
 
-  get pagbankWebhookUrl() {
+  get asaasWebhookToken() {
+    return (this.config.get<string>('ASAAS_WEBHOOK_TOKEN') || '').trim();
+  }
+
+  get asaasInstallments() {
+    return String(Number(this.config.get('ASAAS_INSTALLMENTS')) || 3);
+  }
+
+  get asaasUserAgent() {
     return (
-      this.config.get<string>('PAGBANK_WEBHOOK_URL') ||
-      `${this.storeUrl.replace(/\/$/, '')}/api/payment/webhook/pagbank`
-    );
-  }
-
-  get pagbankInstallments() {
-    return String(Number(this.config.get('PAGBANK_INSTALLMENTS')) || 3);
+      this.config.get<string>('ASAAS_USER_AGENT') ||
+      `WearBubble/2.1 (${this.asaasEnv})`
+    ).trim();
   }
 
   get melhorEnvioEnv() {

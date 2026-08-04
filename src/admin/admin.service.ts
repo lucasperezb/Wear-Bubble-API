@@ -111,6 +111,7 @@ export class AdminService {
         number: row.number,
         date: row.orderedAt.getTime(),
         items: row.items.map((item) => ({
+          id: item.id,
           pid: item.productId || 0,
           name: item.productName,
           size: item.size,
@@ -145,10 +146,11 @@ export class AdminService {
           deliveryTime: row.shippingDeliveryTime,
         },
         gateway: row.gateway,
-        pagbankCheckoutId: row.pagbankCheckoutId,
-        pagbankPaymentId: row.pagbankPaymentId,
+        asaasCustomerId: row.asaasCustomerId,
+        asaasPaymentId: row.asaasPaymentId,
         tracking: row.tracking,
         paidAt: row.paidAt?.getTime(),
+        deliveredAt: row.deliveredAt?.getTime(),
       })),
       events: events.map((row) => ({
         type: row.type,

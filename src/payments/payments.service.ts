@@ -5,15 +5,16 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import bcrypt from 'bcryptjs';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
+import bcrypt from 'bcryptjs';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Repository } from 'typeorm';
+import { AddressEntity } from '../account/entities/address.entity';
+import { ProfileEntity } from '../account/entities/profile.entity';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { AppConfigService } from '../config/config.service';
 import { EmailService } from '../email/email.service';
-import { ProfileEntity } from '../account/entities/profile.entity';
-import { AddressEntity } from '../account/entities/address.entity';
-import { AuthenticatedUser } from '../auth/auth.types';
+import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
 import { OrderDelivery, OrderRecord } from '../orders/order.types';
 import { OrdersService } from '../orders/orders.service';
 import { ProductsService } from '../products/products.service';
@@ -23,11 +24,20 @@ import {
   CreateCheckoutDto,
 } from './dto/create-checkout.dto';
 import { PaymentWebhookDto } from './dto/payment-webhook.dto';
-import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
+
+type AsaasPayment = {
+  id?: string;
+  customer?: string;
+  status?: string;
+  billingType?: string;
+  externalReference?: string;
+  value?: number;
+  installmentNumber?: number;
+  invoiceUrl?: string;
+};
 
 @Injectable()
 export class PaymentsService {
-  private cachedPublicKey = '';
   private readonly logger = new Logger(PaymentsService.name);
 
   constructor(
@@ -43,100 +53,24 @@ export class PaymentsService {
     private readonly melhorEnvio: MelhorEnvioService,
   ) {}
 
-  async publicKey() {
-    if (!this.config.pagbankToken)
-      throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN não configurado no backend.',
-      );
-    if (this.config.pagbankPublicKey)
-      return {
-        publicKey: this.config.pagbankPublicKey,
-        environment: this.config.pagbankEnv,
-      };
-    if (this.cachedPublicKey)
-      return {
-        publicKey: this.cachedPublicKey,
-        environment: this.config.pagbankEnv,
-      };
-
-    let response = await fetch(
-      `${this.config.pagbankBaseUrl}/public-keys/card`,
-      {
-        method: 'GET',
-        headers: {
-          authorization: `Bearer ${this.config.pagbankToken}`,
-          accept: 'application/json',
-        },
-      },
-    );
-    if (response.status === 404) {
-      response = await fetch(`${this.config.pagbankBaseUrl}/public-keys`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.config.pagbankToken}`,
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
-        body: JSON.stringify({ type: 'card' }),
-      });
-    }
-    const data = (await response.json().catch(() => ({}))) as Record<
-      string,
-      any
-    >;
-    if (!response.ok)
-      throw new ServiceUnavailableException(
-        this.pagbankError(data, 'Não foi possível obter a chave pública.'),
-      );
-    this.cachedPublicKey = String(
-      data.public_key || data.publicKey || data.key || '',
-    );
-    if (!this.cachedPublicKey)
-      throw new ServiceUnavailableException(
-        'PagBank não retornou a chave pública.',
-      );
-    return {
-      publicKey: this.cachedPublicKey,
-      environment: this.config.pagbankEnv,
-    };
-  }
-
   async status(orderId: string) {
     const order = await this.orders.findEntity(orderId);
     if (!order) throw new BadRequestException('Pedido inexistente.');
     if (
       order.status === 'pending' &&
-      order.pagbankCheckoutId &&
-      this.config.pagbankToken
+      order.asaasPaymentId &&
+      this.config.asaasApiKey
     ) {
-      const response = await fetch(
-        `${this.config.pagbankBaseUrl}/orders/${encodeURIComponent(order.pagbankCheckoutId)}`,
-        {
-          headers: {
-            authorization: `Bearer ${this.config.pagbankToken}`,
-            accept: 'application/json',
-          },
-        },
+      const response = await this.asaasRequest(
+        `/payments/${encodeURIComponent(order.asaasPaymentId)}`,
       );
       if (response.ok) {
-        const gatewayOrder = (await response
-          .json()
-          .catch(() => ({}))) as Record<string, any>;
-        const charges = Array.isArray(gatewayOrder?.charges)
-          ? gatewayOrder.charges
-          : [];
-        const paid = charges.find(
-          (charge) => String(charge?.status || '').toUpperCase() === 'PAID',
-        );
-        const canceled = charges.find((charge) =>
-          ['DECLINED', 'CANCELED', 'CANCELLED'].includes(
-            String(charge?.status || '').toUpperCase(),
-          ),
-        );
-        if (paid) await this.markOrderPaid(order, paid.id || null);
-        else if (canceled) {
+        const payment = (await this.readJson(response)) as AsaasPayment;
+        if (this.isPaid(payment.status, payment.billingType)) {
+          await this.markOrderPaid(order, payment.id || null);
+        } else if (this.isCanceled(payment.status)) {
           order.status = 'canceled';
-          order.pagbankPaymentId = canceled.id || null;
+          order.asaasPaymentId = payment.id || order.asaasPaymentId;
           await this.orders.saveEntity(order);
         }
       }
@@ -157,73 +91,75 @@ export class PaymentsService {
         order: this.orders.toRecord(orderRow),
         cancellation: {
           alreadyCanceled: true,
-          chargeId: orderRow.pagbankPaymentId,
-          status: 'CANCELED',
+          paymentId: orderRow.asaasPaymentId,
+          status: 'REFUNDED',
         },
       };
     }
-    if (orderRow.status !== 'paid')
+    if (orderRow.status !== 'paid') {
       throw new BadRequestException(
         'Somente pedidos com pagamento confirmado podem ser cancelados.',
       );
-    if (orderRow.gateway !== 'pagbank' || !orderRow.pagbankPaymentId)
+    }
+    if (orderRow.gateway === 'store_credit') {
+      const order = this.orders.toRecord(orderRow);
+      for (const line of order.items || []) {
+        const productRow = await this.products.findEntity(Number(line.pid));
+        if (productRow) {
+          productRow.stock = Math.max(0, productRow.stock + line.qty);
+          await this.products.saveEntity(productRow);
+        }
+      }
+      orderRow.status = 'canceled';
+      await this.orders.saveEntity(orderRow);
+      await this.orders.releaseStoreCredit(orderRow);
+      return {
+        order: this.orders.toRecord(orderRow),
+        cancellation: { status: 'STORE_CREDIT_RESTORED' },
+      };
+    }
+    if (orderRow.gateway !== 'asaas' || !orderRow.asaasPaymentId) {
       throw new BadRequestException(
-        'Pedido sem identificador de cobrança do PagBank.',
+        'Pedido sem identificador de cobrança do Asaas.',
       );
-    if (!this.config.pagbankToken)
-      throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN não configurado no backend.',
-      );
+    }
+    this.assertConfigured();
 
-    const chargeId = orderRow.pagbankPaymentId;
-    const amount = Math.round(Number(orderRow.total) * 100);
-    const url = `${this.config.pagbankBaseUrl}/charges/${encodeURIComponent(chargeId)}/cancel`;
-    const payload = { amount: { value: amount } };
+    const paymentId = orderRow.asaasPaymentId;
+    const url = `/payments/${encodeURIComponent(paymentId)}/refund`;
     this.logger.log(
       JSON.stringify({
-        event: 'pagbank.cancel.request',
-        environment: this.config.pagbankEnv,
+        event: 'asaas.refund.request',
+        environment: this.config.asaasEnv,
         method: 'POST',
-        url,
-        body: payload,
+        paymentId,
       }),
     );
-
-    const response = await fetch(url, {
+    const response = await this.asaasRequest(url, {
       method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.config.pagbankToken}`,
-        'content-type': 'application/json',
-        accept: 'application/json',
-        'x-idempotency-key': `${orderRow.id}-cancel`,
-      },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        description: `Cancelamento do pedido ${orderRow.number}`,
+      }),
     });
-    const data = (await response.json().catch(() => ({}))) as Record<
-      string,
-      any
-    >;
+    const data = await this.readJson(response);
     const cancellation = {
       responseStatus: response.status,
-      chargeId: String(data?.id || chargeId),
-      status: String(data?.status || '').toUpperCase(),
-      amount: data?.amount || payload.amount,
-      summary: data?.summary || null,
+      paymentId: String(data?.id || paymentId),
+      status: String(data?.status || 'REFUND_REQUESTED').toUpperCase(),
+      value: data?.value ?? Number(orderRow.total),
     };
     this.logger.log(
       JSON.stringify({
-        event: 'pagbank.cancel.response',
-        environment: this.config.pagbankEnv,
+        event: 'asaas.refund.response',
+        environment: this.config.asaasEnv,
         ...cancellation,
       }),
     );
-    if (!response.ok)
+    if (!response.ok) {
       throw new ServiceUnavailableException(
-        this.pagbankError(
-          data,
-          'Não foi possível cancelar a cobrança no PagBank.',
-        ),
+        this.asaasError(data, 'Não foi possível estornar a cobrança no Asaas.'),
       );
+    }
 
     const order = this.orders.toRecord(orderRow);
     for (const line of order.items || []) {
@@ -235,33 +171,67 @@ export class PaymentsService {
     }
     orderRow.status = 'canceled';
     await this.orders.saveEntity(orderRow);
+    await this.orders.releaseStoreCredit(orderRow);
+    return { order: this.orders.toRecord(orderRow), cancellation };
+  }
 
+  async refundOrderAmount(
+    orderId: string,
+    amount: number,
+    description: string,
+  ) {
+    const order = await this.orders.findEntity(orderId);
+    if (!order) throw new BadRequestException('Pedido inexistente.');
+    if (order.gateway !== 'asaas' || !order.asaasPaymentId) {
+      throw new BadRequestException('Pedido sem pagamento Asaas para estorno.');
+    }
+    this.assertConfigured();
+    const value =
+      Math.round(Math.min(Number(order.total), Number(amount)) * 100) / 100;
+    if (value <= 0) throw new BadRequestException('Valor de estorno inválido.');
+    const response = await this.asaasRequest(
+      `/payments/${encodeURIComponent(order.asaasPaymentId)}/refund`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ value, description: description.slice(0, 500) }),
+      },
+    );
+    const data = await this.readJson(response);
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        this.asaasError(data, 'Não foi possível solicitar o estorno no Asaas.'),
+      );
+    }
     return {
-      order: this.orders.toRecord(orderRow),
-      cancellation,
+      paymentId: order.asaasPaymentId,
+      value,
+      status: data?.status || 'REFUND_REQUESTED',
     };
   }
 
-  async checkout(user: AuthenticatedUser | undefined, dto: CreateCheckoutDto) {
-    if (!this.config.pagbankToken)
-      throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN não configurado no backend.',
-      );
+  async checkout(
+    user: AuthenticatedUser | undefined,
+    dto: CreateCheckoutDto,
+    remoteIp: string,
+  ) {
+    this.assertConfigured();
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
     const method = this.normalizeMethod(dto.method);
-    if (method !== 'Pix' && !dto.encryptedCard)
-      throw new BadRequestException(
-        'Os dados criptografados do cartão são obrigatórios.',
-      );
-    if (dto.existingOrderId) {
-      if (method === 'Pix')
-        throw new BadRequestException('Este Pix já foi gerado.');
-      return this.payExistingOrderWithCard(dto);
+    if (method !== 'Pix' && !dto.card) {
+      throw new BadRequestException('Os dados do cartão são obrigatórios.');
     }
+    if (dto.existingOrderId) {
+      if (method === 'Pix') {
+        throw new BadRequestException('Este Pix já foi gerado.');
+      }
+      return this.payExistingOrderWithCard(dto, remoteIp);
+    }
+
     const customer = await this.resolveCustomer(user, dto.customer);
-    if (!dto.shippingQuoteToken)
+    if (!dto.shippingQuoteToken) {
       throw new BadRequestException('Selecione uma opção de entrega.');
+    }
     const shipping = this.melhorEnvio.verifyQuoteToken(
       dto.shippingQuoteToken,
       customer.delivery.cep,
@@ -270,57 +240,73 @@ export class PaymentsService {
       customer.uid,
       {
         items,
-        method: method,
+        method,
         coupon: dto.coupon,
+        creditCode: dto.creditCode,
         bundle: dto.bundle,
       },
       customer.delivery,
       shipping,
     );
-    const payload = this.orderPayload(
-      customer.delivery,
-      order,
-      method,
-      dto.encryptedCard,
-      dto.installments,
-    );
+    let paymentCreated = false;
 
     try {
-      const response = await fetch(`${this.config.pagbankBaseUrl}/orders`, {
+      if (order.total === 0) {
+        const savedOrder = await this.orders.findEntity(order.id);
+        if (!savedOrder) {
+          throw new ServiceUnavailableException('Pedido não foi persistido.');
+        }
+        savedOrder.gateway = 'store_credit';
+        await this.markOrderPaid(savedOrder, null);
+        return {
+          orderId: order.id,
+          number: order.number,
+          total: 0,
+          paymentStatus: 'RECEIVED',
+          message: 'Pedido pago integralmente com Crédito Wear Bubble.',
+        };
+      }
+      const asaasCustomerId = await this.findOrCreateAsaasCustomer(
+        customer.uid,
+        customer.delivery,
+      );
+      const payload = this.paymentPayload(
+        asaasCustomerId,
+        customer.delivery,
+        order,
+        method,
+        dto,
+        remoteIp,
+      );
+      const response = await this.asaasRequest('/payments', {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.config.pagbankToken}`,
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'x-idempotency-key': order.id,
-        },
         body: JSON.stringify(payload),
       });
-      const data = (await response.json().catch(() => ({}))) as Record<
-        string,
-        any
-      >;
+      const payment = (await this.readJson(response)) as AsaasPayment &
+        Record<string, any>;
       if (!response.ok) {
         throw new ServiceUnavailableException(
-          this.pagbankError(
-            data,
-            'Não foi possível processar o pagamento no PagBank.',
+          this.asaasError(
+            payment,
+            'Não foi possível processar o pagamento no Asaas.',
           ),
         );
       }
+      if (!payment.id) {
+        throw new ServiceUnavailableException(
+          'Asaas não retornou o identificador da cobrança.',
+        );
+      }
+      paymentCreated = true;
 
       const savedOrder = await this.orders.findEntity(order.id);
       if (savedOrder) {
-        savedOrder.gateway = 'pagbank';
-        savedOrder.pagbankCheckoutId = data?.id || null;
-        const charge = Array.isArray(data?.charges) ? data.charges[0] : null;
-        savedOrder.pagbankPaymentId = charge?.id || null;
-        const chargeStatus = String(charge?.status || '').toUpperCase();
-        if (chargeStatus === 'PAID') {
-          await this.markOrderPaid(savedOrder, charge?.id || null);
-        } else if (
-          ['DECLINED', 'CANCELED', 'CANCELLED'].includes(chargeStatus)
-        ) {
+        savedOrder.gateway = 'asaas';
+        savedOrder.asaasCustomerId = asaasCustomerId;
+        savedOrder.asaasPaymentId = payment.id;
+        if (this.isPaid(payment.status, payment.billingType)) {
+          await this.markOrderPaid(savedOrder, payment.id);
+        } else if (this.isCanceled(payment.status)) {
           savedOrder.status = 'canceled';
           await this.orders.saveEntity(savedOrder);
         } else {
@@ -329,250 +315,272 @@ export class PaymentsService {
       }
 
       if (method === 'Pix') {
-        const qrCode = Array.isArray(data?.qr_codes) ? data.qr_codes[0] : null;
-        if (!qrCode?.text)
+        const qrResponse = await this.asaasRequest(
+          `/payments/${encodeURIComponent(payment.id)}/pixQrCode`,
+        );
+        const qrCode = await this.readJson(qrResponse);
+        if (!qrResponse.ok || !qrCode?.payload) {
           throw new ServiceUnavailableException(
-            'PagBank não retornou o código Pix.',
+            this.asaasError(qrCode, 'Asaas não retornou o código Pix.'),
           );
-        const links = Array.isArray(qrCode.links) ? qrCode.links : [];
-        const image = links.find(
-          (link) =>
-            String(link.rel || '').toUpperCase() === 'QRCODE.PNG' ||
-            String(link.media || '').toLowerCase() === 'image/png',
-        )?.href;
+        }
         await this.email.sendOrderCreated(order);
         return {
           orderId: order.id,
           number: order.number,
           total: order.total,
-          paymentStatus: 'WAITING',
+          paymentStatus: String(payment.status || 'PENDING').toUpperCase(),
           pix: {
-            text: qrCode.text,
-            image: image || null,
-            expiresAt: qrCode.expiration_date || null,
+            text: String(qrCode.payload),
+            image: qrCode.encodedImage
+              ? `data:image/png;base64,${qrCode.encodedImage}`
+              : null,
+            expiresAt: qrCode.expirationDate || null,
           },
         };
       }
 
-      const charge = Array.isArray(data?.charges) ? data.charges[0] : null;
-      if (
-        !['PAID', 'DECLINED', 'CANCELED', 'CANCELLED'].includes(
-          String(charge?.status || '').toUpperCase(),
-        )
-      ) {
+      if (!this.isPaid(payment.status, payment.billingType)) {
         await this.email.sendOrderCreated(order);
       }
       return {
         orderId: order.id,
         number: order.number,
         total: order.total,
-        paymentStatus: String(charge?.status || 'WAITING').toUpperCase(),
-        message:
-          charge?.payment_response?.message ||
-          (charge?.status === 'DECLINED'
-            ? 'Pagamento não autorizado.'
-            : 'Pagamento processado.'),
-        pagbankCheckoutId: data?.id || null,
+        paymentStatus: String(payment.status || 'PENDING').toUpperCase(),
+        message: this.isPaid(payment.status, payment.billingType)
+          ? 'Pagamento confirmado.'
+          : 'Pagamento em processamento.',
+        asaasPaymentId: payment.id,
       };
     } catch (error) {
-      await this.orders.rollbackPending(order);
+      if (!paymentCreated) await this.orders.rollbackPending(order);
       throw error;
     }
   }
 
-  private async payExistingOrderWithCard(dto: CreateCheckoutDto) {
+  private async payExistingOrderWithCard(
+    dto: CreateCheckoutDto,
+    remoteIp: string,
+  ) {
     const orderRow = await this.orders.findEntity(dto.existingOrderId!);
-    if (!orderRow || !orderRow.pagbankCheckoutId)
+    if (!orderRow || !orderRow.asaasCustomerId || !orderRow.asaasPaymentId) {
       throw new BadRequestException('Pedido pendente não encontrado.');
-    if (orderRow.status !== 'pending')
+    }
+    if (orderRow.status !== 'pending') {
       throw new BadRequestException('Este pedido não está mais pendente.');
+    }
     const order = this.orders.toRecord(orderRow);
+    if (!order.delivery) {
+      throw new BadRequestException('Dados do comprador não encontrados.');
+    }
+    const shippingPrice = Number(order.shipping?.price || 0);
+    const creditAmount = Number(order.storeCreditAmount || 0);
+    const pixProductTotal = Math.max(
+      0,
+      order.total + creditAmount - shippingPrice,
+    );
     const cardTotal =
       order.method === 'Pix'
-        ? Math.round((order.total / (1 - this.config.pixDiscount)) * 100) / 100
+        ? Math.max(
+            0,
+            Math.round(
+              (pixProductTotal / (1 - this.config.pixDiscount) +
+                shippingPrice -
+                creditAmount) *
+                100,
+            ) / 100,
+          )
         : order.total;
     const cardOrder = { ...order, total: cardTotal };
-    const chargePayload = this.cardCharge(
-      cardOrder,
-      dto.encryptedCard!,
-      dto.installments,
+
+    const deleteResponse = await this.asaasRequest(
+      `/payments/${encodeURIComponent(orderRow.asaasPaymentId)}`,
+      { method: 'DELETE' },
     );
-    const response = await fetch(
-      `${this.config.pagbankBaseUrl}/orders/${encodeURIComponent(orderRow.pagbankCheckoutId)}/pay`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.config.pagbankToken}`,
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'x-idempotency-key': `${order.id}-card`,
-        },
-        body: JSON.stringify({ charges: [chargePayload] }),
-      },
-    );
-    const data = (await response.json().catch(() => ({}))) as Record<
-      string,
-      any
-    >;
-    if (!response.ok)
+    if (!deleteResponse.ok && deleteResponse.status !== 404) {
+      const error = await this.readJson(deleteResponse);
       throw new ServiceUnavailableException(
-        this.pagbankError(
-          data,
+        this.asaasError(error, 'Não foi possível substituir a cobrança Pix.'),
+      );
+    }
+
+    const response = await this.asaasRequest('/payments', {
+      method: 'POST',
+      body: JSON.stringify(
+        this.paymentPayload(
+          orderRow.asaasCustomerId,
+          order.delivery,
+          cardOrder,
+          'Cartão de crédito',
+          dto,
+          remoteIp,
+        ),
+      ),
+    });
+    const payment = (await this.readJson(response)) as AsaasPayment &
+      Record<string, any>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        this.asaasError(
+          payment,
           'Não foi possível trocar o pagamento para cartão.',
         ),
       );
+    }
+    if (!payment.id) {
+      throw new ServiceUnavailableException(
+        'Asaas não retornou o identificador da cobrança.',
+      );
+    }
 
-    const charge = Array.isArray(data?.charges)
-      ? data.charges[0]
-      : String(data?.id || '').startsWith('CHAR_')
-        ? data
-        : null;
-    const chargeStatus = String(charge?.status || 'WAITING').toUpperCase();
-    orderRow.pagbankPaymentId = charge?.id || null;
-    if (chargeStatus === 'PAID') {
-      orderRow.method = 'Cartão de crédito';
-      orderRow.total = cardTotal;
-      await this.markOrderPaid(orderRow, charge?.id || null);
-    } else if (['DECLINED', 'CANCELED', 'CANCELLED'].includes(chargeStatus)) {
-      await this.orders.saveEntity(orderRow);
+    orderRow.asaasPaymentId = payment.id;
+    orderRow.method = 'Cartão de crédito';
+    orderRow.total = cardTotal;
+    if (this.isPaid(payment.status, payment.billingType)) {
+      await this.markOrderPaid(orderRow, payment.id);
     } else {
-      orderRow.method = 'Cartão de crédito';
-      orderRow.total = cardTotal;
       await this.orders.saveEntity(orderRow);
     }
     return {
       orderId: order.id,
       number: order.number,
       total: cardTotal,
-      paymentStatus: chargeStatus,
-      message:
-        charge?.payment_response?.message ||
-        (chargeStatus === 'DECLINED'
-          ? 'Pagamento não autorizado.'
-          : 'Pagamento processado.'),
-      pagbankCheckoutId: orderRow.pagbankCheckoutId,
+      paymentStatus: String(payment.status || 'PENDING').toUpperCase(),
+      message: this.isPaid(payment.status, payment.billingType)
+        ? 'Pagamento confirmado.'
+        : 'Pagamento em processamento.',
+      asaasPaymentId: payment.id,
     };
   }
 
-  async pagbankWebhook(
-    dto: PaymentWebhookDto,
-    rawBody?: Buffer,
-    signature?: string,
-  ) {
-    this.assertPagbankSignature(rawBody, signature);
-    const orderId = this.findOrderId(dto);
-    if (!orderId) throw new BadRequestException('reference_id ausente.');
+  async asaasWebhook(dto: PaymentWebhookDto, token?: string) {
+    this.assertAsaasWebhookToken(token);
+    const orderId = dto.payment?.externalReference;
+    if (!orderId) throw new BadRequestException('externalReference ausente.');
     const orderRow = await this.orders.findEntity(orderId);
-    const order = orderRow ? this.orders.toRecord(orderRow) : undefined;
-    if (!order || !orderRow)
-      throw new BadRequestException('Pedido inexistente.');
-    if (order.status === 'paid') return { ok: true };
-
-    const status = this.findPagbankStatus(dto);
-    if (status === 'PAID') {
-      await this.markPaid(orderRow, dto);
+    if (!orderRow) throw new BadRequestException('Pedido inexistente.');
+    if (
+      dto.payment?.id &&
+      orderRow.asaasPaymentId &&
+      dto.payment.id !== orderRow.asaasPaymentId
+    ) {
       return { ok: true };
     }
-    if (['CANCELED', 'CANCELLED', 'DECLINED'].includes(status)) {
+
+    const event = String(dto.event || '').toUpperCase();
+    const status = String(dto.payment?.status || '').toUpperCase();
+    const paymentId = dto.payment?.id || null;
+    if (
+      ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'].includes(event) ||
+      this.isPaid(status, dto.payment?.billingType)
+    ) {
+      if (
+        event === 'PAYMENT_CONFIRMED' &&
+        String(dto.payment?.billingType || '').toUpperCase() === 'PIX'
+      ) {
+        return { ok: true };
+      }
+      await this.markOrderPaid(orderRow, paymentId);
+      return { ok: true };
+    }
+    if (event === 'PAYMENT_DELETED' || status === 'DELETED') {
       orderRow.status = 'canceled';
+      orderRow.asaasPaymentId = paymentId || orderRow.asaasPaymentId;
       await this.orders.saveEntity(orderRow);
     }
     return { ok: true };
   }
 
-  private orderPayload(
+  private paymentPayload(
+    asaasCustomerId: string,
     customer: OrderDelivery,
     order: OrderRecord,
     method: string,
-    encryptedCard?: string,
-    installmentsValue?: number,
+    dto: CreateCheckoutDto,
+    remoteIp: string,
   ) {
-    const amount = Math.round(order.total * 100);
-    const phoneDigits = customer.phone.replace(/\D/g, '');
     const payload: Record<string, unknown> = {
-      reference_id: order.id,
-      customer: {
-        name: customer.name.slice(0, 120),
-        email: customer.email,
-        tax_id: customer.taxId.replace(/\D/g, ''),
-        ...(phoneDigits.length >= 10
-          ? {
-              phones: [
-                {
-                  country: '55',
-                  area: phoneDigits.slice(0, 2),
-                  number: phoneDigits.slice(2),
-                  type: phoneDigits.length === 11 ? 'MOBILE' : 'HOME',
-                },
-              ],
-            }
-          : {}),
-      },
-      items: [
-        {
-          reference_id: order.number,
-          name: `Pedido ${order.number} - Bubble`,
-          quantity: 1,
-          unit_amount: amount,
-        },
-      ],
-      shipping: {
-        address: {
-          street: customer.street.slice(0, 160),
-          number: customer.number.slice(0, 20),
-          complement: customer.reference.slice(0, 40) || undefined,
-          locality: customer.neighborhood.slice(0, 60) || 'Centro',
-          city: customer.city.slice(0, 90),
-          region_code: customer.state,
-          country: 'BRA',
-          postal_code: customer.cep.replace(/\D/g, ''),
-        },
-      },
+      customer: asaasCustomerId,
+      billingType: method === 'Pix' ? 'PIX' : 'CREDIT_CARD',
+      value: order.total,
+      dueDate: new Date().toISOString().slice(0, 10),
+      description: `Pedido ${order.number} - Wear Bubble`.slice(0, 500),
+      externalReference: order.id,
     };
-    if (this.isPublicHttpUrl(this.config.pagbankWebhookUrl)) {
-      payload.notification_urls = [this.config.pagbankWebhookUrl];
-    }
-    if (method === 'Pix') {
-      payload.qr_codes = [
-        {
-          amount: { value: amount },
-          expiration_date: new Date(Date.now() + 30 * 60_000).toISOString(),
-        },
-      ];
-    } else {
-      payload.charges = [
-        this.cardCharge(order, encryptedCard!, installmentsValue),
-      ];
+    if (method !== 'Pix') {
+      const installments = Math.max(
+        1,
+        Math.min(
+          Number(this.config.asaasInstallments),
+          Number(dto.installments) || 1,
+        ),
+      );
+      payload.creditCard = dto.card;
+      payload.creditCardHolderInfo = {
+        name: customer.name,
+        email: customer.email,
+        cpfCnpj: customer.taxId.replace(/\D/g, ''),
+        postalCode: customer.cep.replace(/\D/g, ''),
+        addressNumber: customer.number,
+        addressComplement: customer.reference || null,
+        mobilePhone: customer.phone.replace(/\D/g, '') || undefined,
+      };
+      payload.remoteIp = this.normalizeRemoteIp(remoteIp);
+      if (installments > 1) {
+        payload.installmentCount = installments;
+        payload.installmentValue =
+          Math.round((order.total / installments) * 100) / 100;
+      }
     }
     return payload;
   }
 
-  private cardCharge(
-    order: OrderRecord,
-    encryptedCard: string,
-    installmentsValue?: number,
+  private async findOrCreateAsaasCustomer(
+    uid: string,
+    customer: OrderDelivery,
   ) {
-    return {
-      reference_id: order.id,
-      description: `Pedido ${order.number} Bubble`.slice(0, 64),
-      amount: {
-        value: Math.round(order.total * 100),
-        currency: 'BRL',
-      },
-      payment_method: {
-        type: 'CREDIT_CARD',
-        installments: Math.max(
-          1,
-          Math.min(
-            Number(this.config.pagbankInstallments),
-            Number(installmentsValue) || 1,
-          ),
+    const cpfCnpj = customer.taxId.replace(/\D/g, '');
+    const search = await this.asaasRequest(
+      `/customers?cpfCnpj=${encodeURIComponent(cpfCnpj)}&limit=1`,
+    );
+    const searchData = await this.readJson(search);
+    if (!search.ok) {
+      throw new ServiceUnavailableException(
+        this.asaasError(
+          searchData,
+          'Não foi possível consultar o cliente no Asaas.',
         ),
-        capture: true,
-        soft_descriptor: 'BUBBLE',
-        card: { encrypted: encryptedCard },
-      },
-    };
+      );
+    }
+    const existing = Array.isArray(searchData?.data)
+      ? searchData.data[0]
+      : null;
+    if (existing?.id) return String(existing.id);
+
+    const response = await this.asaasRequest('/customers', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: customer.name,
+        cpfCnpj,
+        email: customer.email,
+        mobilePhone: customer.phone.replace(/\D/g, '') || undefined,
+        address: customer.street,
+        addressNumber: customer.number,
+        complement: customer.reference || undefined,
+        province: customer.neighborhood || undefined,
+        postalCode: customer.cep.replace(/\D/g, ''),
+        externalReference: uid,
+        notificationDisabled: true,
+      }),
+    });
+    const data = await this.readJson(response);
+    if (!response.ok || !data?.id) {
+      throw new ServiceUnavailableException(
+        this.asaasError(data, 'Não foi possível criar o cliente no Asaas.'),
+      );
+    }
+    return String(data.id);
   }
 
   private async resolveCustomer(
@@ -606,10 +614,11 @@ export class PaymentsService {
       return { uid: authenticated.uid, delivery };
     }
 
-    if (!input)
+    if (!input) {
       throw new BadRequestException(
         'Informe o e-mail e o endereço para continuar sem conta.',
       );
+    }
     const delivery = this.normalizeDelivery(input);
     let user = await this.users.findByEmail(delivery.email);
     if (!user) {
@@ -686,8 +695,9 @@ export class PaymentsService {
         'Preencha os dados obrigatórios de entrega.',
       );
     }
-    if (!this.isValidCpf(delivery.taxId))
+    if (!this.isValidCpf(delivery.taxId)) {
       throw new BadRequestException('Informe um CPF válido.');
+    }
     return delivery;
   }
 
@@ -709,16 +719,6 @@ export class PaymentsService {
     return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
   }
 
-  private async markPaid(
-    orderRow: import('../orders/entities/order.entity').OrderEntity,
-    dto: PaymentWebhookDto,
-  ) {
-    const charge = dto.charges?.find(
-      (item) => String(item.status || '').toUpperCase() === 'PAID',
-    );
-    await this.markOrderPaid(orderRow, charge?.id || dto.id || null);
-  }
-
   private async markOrderPaid(
     orderRow: import('../orders/entities/order.entity').OrderEntity,
     paymentId: string | null,
@@ -735,58 +735,75 @@ export class PaymentsService {
     orderRow.status = 'paid';
     orderRow.shipStage = Math.max(order.shipStage || 0, 1);
     orderRow.paidAt = new Date();
-    orderRow.pagbankPaymentId = paymentId;
+    orderRow.asaasPaymentId = paymentId;
     await this.orders.saveEntity(orderRow);
     await this.email.sendPaymentConfirmed(this.orders.toRecord(orderRow));
   }
 
-  private assertPagbankSignature(rawBody?: Buffer, signature?: string) {
-    if (!this.config.pagbankToken)
+  private asaasRequest(path: string, init: RequestInit = {}) {
+    return fetch(`${this.config.asaasBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'user-agent': this.config.asaasUserAgent,
+        access_token: this.config.asaasApiKey,
+        ...(init.headers || {}),
+      },
+    });
+  }
+
+  private async readJson(response: Response): Promise<Record<string, any>> {
+    return (await response.json().catch(() => ({}))) as Record<string, any>;
+  }
+
+  private assertConfigured() {
+    if (!this.config.asaasApiKey) {
       throw new ServiceUnavailableException(
-        'PAGBANK_TOKEN não configurado no backend.',
+        'ASAAS_API_KEY não configurada no backend.',
       );
-    if (!rawBody || !signature)
-      throw new UnauthorizedException('Assinatura PagBank ausente.');
-    const expected = createHash('sha256')
-      .update(`${this.config.pagbankToken}-${rawBody.toString('utf8')}`)
-      .digest('hex');
-    const expectedBuffer = Buffer.from(expected);
-    const signatureBuffer = Buffer.from(signature);
-    if (
-      expectedBuffer.length !== signatureBuffer.length ||
-      !timingSafeEqual(expectedBuffer, signatureBuffer)
-    ) {
-      throw new UnauthorizedException('Assinatura PagBank inválida.');
     }
   }
 
-  private pagbankError(data: Record<string, any>, fallback: string) {
-    const errors = Array.isArray(data?.error_messages)
-      ? data.error_messages
-      : Array.isArray(data?.errors)
-        ? data.errors
-        : [];
+  private assertAsaasWebhookToken(received?: string) {
+    const configured = this.config.asaasWebhookToken;
+    if (!configured) {
+      throw new ServiceUnavailableException(
+        'ASAAS_WEBHOOK_TOKEN não configurado no backend.',
+      );
+    }
+    if (!received) throw new UnauthorizedException('Token Asaas ausente.');
+    const expectedBuffer = Buffer.from(configured);
+    const receivedBuffer = Buffer.from(received);
+    if (
+      expectedBuffer.length !== receivedBuffer.length ||
+      !timingSafeEqual(expectedBuffer, receivedBuffer)
+    ) {
+      throw new UnauthorizedException('Token Asaas inválido.');
+    }
+  }
+
+  private asaasError(data: Record<string, any>, fallback: string) {
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
     const first = errors[0] || {};
-    const message =
-      first.description || first.message || data?.message || fallback;
-    const field = first.parameter_name || first.parameter || '';
-    return field ? `${message} Campo: ${field}.` : String(message);
+    return String(
+      first.description || first.message || data?.message || fallback,
+    );
   }
 
-  private findOrderId(dto: PaymentWebhookDto) {
+  private isPaid(status?: string, billingType?: string) {
+    const normalized = String(status || '').toUpperCase();
+    if (['RECEIVED', 'RECEIVED_IN_CASH'].includes(normalized)) return true;
     return (
-      dto.reference_id ||
-      dto.orderId ||
-      dto.charges?.find((charge) => charge.reference_id)?.reference_id ||
-      null
+      normalized === 'CONFIRMED' &&
+      String(billingType || '').toUpperCase() !== 'PIX'
     );
   }
 
-  private findPagbankStatus(dto: PaymentWebhookDto) {
-    const paidCharge = dto.charges?.find(
-      (charge) => String(charge.status || '').toUpperCase() === 'PAID',
+  private isCanceled(status?: string) {
+    return ['REFUNDED', 'REFUND_REQUESTED', 'DELETED'].includes(
+      String(status || '').toUpperCase(),
     );
-    return String(paidCharge?.status || dto.status || '').toUpperCase();
   }
 
   private normalizeMethod(method?: CreateCheckoutDto['method']) {
@@ -797,15 +814,12 @@ export class PaymentsService {
       : 'Cartão de crédito';
   }
 
-  private isPublicHttpUrl(value: string) {
-    try {
-      const url = new URL(value);
-      return (
-        ['http:', 'https:'].includes(url.protocol) &&
-        !['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)
-      );
-    } catch {
-      return false;
-    }
+  private normalizeRemoteIp(value: string) {
+    return (
+      value
+        .replace(/^::ffff:/, '')
+        .split(',')[0]
+        .trim() || '127.0.0.1'
+    );
   }
 }

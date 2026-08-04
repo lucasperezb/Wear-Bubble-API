@@ -84,46 +84,76 @@ o backend cria (ou publica) o bucket, limita os arquivos a 5 MB e aceita JPEG,
 PNG e WebP. As imagens são redimensionadas e convertidas para WebP antes do
 armazenamento.
 
-## PagBank
+## Asaas
 
-As credenciais ficam somente no backend. Para producao, configure no provedor:
+As credenciais ficam somente no backend. Para produção, configure no provedor:
 
 ```env
-PAGBANK_ENV=production
-PAGBANK_TOKEN=
-PAGBANK_PUBLIC_KEY=
-PAGBANK_WEBHOOK_URL=https://api.wearbubble.com.br/api/payment/webhook/pagbank
-PAGBANK_INSTALLMENTS=3
+ASAAS_ENV=production
+ASAAS_API_KEY=$aact_prod_...
+ASAAS_WEBHOOK_TOKEN=gere-um-segredo-com-pelo-menos-32-caracteres
+ASAAS_INSTALLMENTS=3
+ASAAS_USER_AGENT=WearBubble/2.1
 ```
 
-`PAGBANK_TOKEN` deve ser um token de producao. `PAGBANK_PUBLIC_KEY` e opcional:
-quando ela estiver vazia, `GET /api/payment/public-key` consulta a chave
-vinculada a conta e cria uma pela API do PagBank caso ainda nao exista.
+`ASAAS_API_KEY` deve pertencer ao mesmo ambiente definido em `ASAAS_ENV`. O
+cifrão inicial faz parte da chave e não pode ser removido. O checkout cria ou
+reutiliza o cliente pelo CPF, gera cobranças Pix e processa cartões diretamente
+pela API v3 do Asaas. O checkout deve ser servido exclusivamente por HTTPS em
+produção, pois os dados do cartão trafegam até o backend e nunca são persistidos.
 
-Depois do deploy, valide:
+No painel do Asaas, crie um webhook com:
 
 ```text
-GET https://api.wearbubble.com.br/api/health
-GET https://api.wearbubble.com.br/api/payment/public-key
+URL: https://api.wearbubble.com.br/api/payment/webhook/asaas
+Token de autenticação: o mesmo valor de ASAAS_WEBHOOK_TOKEN
+Eventos: PAYMENT_CONFIRMED, PAYMENT_RECEIVED, PAYMENT_REFUNDED,
+PAYMENT_PARTIALLY_REFUNDED e PAYMENT_DELETED
 ```
 
-O segundo endpoint deve responder com `publicKey` e
-`environment: "production"`, sem expor o token secreto.
+O token deve ter de 32 a 255 caracteres. O Asaas o envia no header
+`asaas-access-token`, validado pelo backend antes de qualquer atualização.
+Depois do deploy, valide `GET https://api.wearbubble.com.br/api/health` e os
+fluxos completos primeiro no Sandbox.
 
 ### Cancelamento pelo painel
 
-Pedidos pagos pelo PagBank podem ser estornados integralmente pelo gerente em:
+Pedidos pagos pelo Asaas podem ser estornados integralmente pelo gerente em:
 
 ```text
 POST /api/payment/orders/:orderId/cancel
 ```
 
-A API envia o valor total em centavos para
-`POST /charges/:chargeId/cancel` no ambiente configurado pelo
-`PAGBANK_ENV`. O pedido local somente muda para `canceled` após uma resposta
-de sucesso do PagBank. Os eventos `pagbank.cancel.request` e
-`pagbank.cancel.response` são registrados sem o token de autorização para
-auxiliar na homologação.
+A API chama `POST /payments/:paymentId/refund` no ambiente configurado pelo
+`ASAAS_ENV`. O pedido local somente muda para `canceled` após uma resposta de
+sucesso do Asaas. Os eventos `asaas.refund.request` e `asaas.refund.response`
+são registrados sem a API Key para auxiliar na homologação.
+
+## Trocas, devoluções e Crédito Wear Bubble
+
+O cliente autenticado solicita e acompanha o pós-venda pela área da conta. A
+devolução por arrependimento é aceita em até 7 dias corridos após a entrega; a
+troca voluntária, em até 30 dias. O motivo é obrigatório e o relato adicional é
+opcional. Os endpoints principais são:
+
+```text
+POST /api/returns
+GET  /api/returns/mine
+POST /api/returns/:id/cancel
+GET  /api/returns/credits/mine
+GET  /api/credits/:code
+```
+
+O gerente opera a fila em `GET /api/returns`, informa manualmente o código e o
+rastreio da logística reversa, registra recebimento e inspeção e conclui por
+`POST /api/returns/:id/resolve`. Devoluções usam estorno parcial do Asaas quando
+há valor pago pelo gateway. Trocas geram um Crédito Wear Bubble nominal, com
+saldo parcial, validade de 180 dias e frete grátis na compra em que for usado.
+Se o crédito cobrir todo o pedido, nenhuma cobrança é criada no Asaas.
+
+A geração automática da autorização de postagem pelo Melhor Envio ainda depende
+do endereço operacional completo de origem/devolução. Até essa configuração, o
+código de postagem e o rastreio são registrados pelo gerente no painel.
 
 ## Qualidade
 

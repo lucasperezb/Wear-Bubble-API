@@ -11,6 +11,7 @@ import { CouponsService } from '../coupons/coupons.service';
 import { EmailService } from '../email/email.service';
 import { ProductsService } from '../products/products.service';
 import { CouponRecord } from '../coupons/coupon.types';
+import { CreditsService } from '../credits/credits.service';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
@@ -24,6 +25,7 @@ export class OrdersService {
     private readonly config: AppConfigService,
     private readonly products: ProductsService,
     private readonly coupons: CouponsService,
+    private readonly credits: CreditsService,
     private readonly email: EmailService,
     @InjectRepository(OrderEntity)
     private readonly orders: Repository<OrderEntity>,
@@ -104,6 +106,7 @@ export class OrdersService {
       )
         bundleSubtotal += lineTotal;
       lines.push({
+        id: 0,
         pid: product.id,
         name: product.name,
         size,
@@ -133,72 +136,97 @@ export class OrdersService {
       Math.round(
         subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
       ) / 100;
-    const shippingPrice = this.config.freeShippingEnabled
-      ? 0
-      : productTotal >= 299
+    const creditCode =
+      String(dto?.creditCode || '')
+        .trim()
+        .toUpperCase() || null;
+    const shippingPrice =
+      this.config.freeShippingEnabled || creditCode
         ? 0
-        : Math.max(0, Number(shipping?.price) || 0);
-    const total = Math.round((productTotal + shippingPrice) * 100) / 100;
+        : productTotal >= 299
+          ? 0
+          : Math.max(0, Number(shipping?.price) || 0);
+    const beforeCredit = Math.round((productTotal + shippingPrice) * 100) / 100;
+    const orderNumber = await this.nextOrderNumber();
+    const reservedCredit = creditCode
+      ? await this.credits.reserve(uid, creditCode, beforeCredit)
+      : null;
+    const total = Math.max(
+      0,
+      Math.round((beforeCredit - (reservedCredit?.amount || 0)) * 100) / 100,
+    );
     const order: OrderRecord = {
       id: randomUUID(),
       customerId: uid,
-      number: await this.nextOrderNumber(),
+      number: orderNumber,
       date: Date.now(),
       items: lines,
       total,
       method,
       coupon: couponCode,
       couponPct,
+      storeCreditCode: reservedCredit?.code || null,
+      storeCreditAmount: reservedCredit?.amount || 0,
       status: 'pending',
       shipStage: 0,
       ...(delivery ? { delivery } : {}),
       ...(shipping ? { shipping: { ...shipping, price: shippingPrice } } : {}),
     };
-    await this.orders.save(
-      this.orders.create({
-        id: order.id,
-        customerUid: uid,
-        number: order.number,
-        orderedAt: new Date(order.date),
-        customerName: delivery?.name || '',
-        customerEmail: delivery?.email || '',
-        customerTaxId: delivery?.taxId || '',
-        customerPhone: delivery?.phone || '',
-        shippingCep: delivery?.cep || '',
-        shippingStreet: delivery?.street || '',
-        shippingNeighborhood: delivery?.neighborhood || '',
-        shippingNumber: delivery?.number || '',
-        shippingReference: delivery?.reference || '',
-        shippingCity: delivery?.city || '',
-        shippingState: delivery?.state || '',
-        shippingServiceId: shipping?.serviceId || null,
-        shippingServiceName: shipping?.name || null,
-        shippingCompany: shipping?.company || null,
-        shippingPrice,
-        shippingDeliveryTime: shipping?.deliveryTime || null,
-        items: lines.map((line) =>
-          this.orderItems.create({
-            productId: line.pid,
-            productName: line.name,
-            size: line.size,
-            color: line.color,
-            quantity: line.qty,
-            unitPrice: line.price,
-          }),
-        ),
-        total: order.total,
-        method: order.method,
-        couponCode: order.coupon,
-        couponPct: order.couponPct,
-        status: order.status,
-        shipStage: order.shipStage,
-        gateway: null,
-        pagbankCheckoutId: null,
-        pagbankPaymentId: null,
-        tracking: null,
-        paidAt: null,
-      }),
-    );
+    try {
+      await this.orders.save(
+        this.orders.create({
+          id: order.id,
+          customerUid: uid,
+          number: order.number,
+          orderedAt: new Date(order.date),
+          customerName: delivery?.name || '',
+          customerEmail: delivery?.email || '',
+          customerTaxId: delivery?.taxId || '',
+          customerPhone: delivery?.phone || '',
+          shippingCep: delivery?.cep || '',
+          shippingStreet: delivery?.street || '',
+          shippingNeighborhood: delivery?.neighborhood || '',
+          shippingNumber: delivery?.number || '',
+          shippingReference: delivery?.reference || '',
+          shippingCity: delivery?.city || '',
+          shippingState: delivery?.state || '',
+          shippingServiceId: shipping?.serviceId || null,
+          shippingServiceName: shipping?.name || null,
+          shippingCompany: shipping?.company || null,
+          shippingPrice,
+          shippingDeliveryTime: shipping?.deliveryTime || null,
+          items: lines.map((line) =>
+            this.orderItems.create({
+              productId: line.pid,
+              productName: line.name,
+              size: line.size,
+              color: line.color,
+              quantity: line.qty,
+              unitPrice: line.price,
+            }),
+          ),
+          total: order.total,
+          method: order.method,
+          couponCode: order.coupon,
+          couponPct: order.couponPct,
+          status: order.status,
+          shipStage: order.shipStage,
+          gateway: null,
+          asaasCustomerId: null,
+          asaasPaymentId: null,
+          tracking: null,
+          paidAt: null,
+          deliveredAt: null,
+          storeCreditCode: order.storeCreditCode || null,
+          storeCreditAmount: order.storeCreditAmount || 0,
+        }),
+      );
+    } catch (error) {
+      if (reservedCredit) {
+        await this.credits.release(reservedCredit.code, reservedCredit.amount);
+      }
+      throw error;
+    }
     if (coupon) await this.coupons.increment(coupon.code, 1);
     return order;
   }
@@ -208,6 +236,19 @@ export class OrdersService {
     if (!row || row.status !== 'pending') return;
     await this.orders.delete({ id: order.id });
     if (order.coupon) await this.coupons.increment(order.coupon, -1);
+    if (order.storeCreditCode && order.storeCreditAmount) {
+      await this.credits.release(
+        order.storeCreditCode,
+        order.storeCreditAmount,
+      );
+    }
+  }
+
+  async releaseStoreCredit(row: OrderEntity) {
+    if (!row.storeCreditCode || row.storeCreditAmount <= 0) return;
+    await this.credits.release(row.storeCreditCode, row.storeCreditAmount);
+    row.storeCreditAmount = 0;
+    await this.orders.save(row);
   }
 
   async listMine(uid: string) {
@@ -234,6 +275,8 @@ export class OrdersService {
       0,
       Math.min(5, parseInt(String(dto?.shipStage), 10) || 0),
     );
+    if (row.shipStage === 5 && !row.deliveredAt) row.deliveredAt = new Date();
+    if (row.shipStage < 5) row.deliveredAt = null;
     if (dto.tracking !== undefined) row.tracking = String(dto.tracking);
     await this.orders.save(row);
     const order = this.toRecord(row);
@@ -258,6 +301,7 @@ export class OrdersService {
       number: row.number,
       date: row.orderedAt.getTime(),
       items: (row.items || []).map((item) => ({
+        id: item.id,
         pid: item.productId || 0,
         name: item.productName,
         size: item.size,
@@ -269,6 +313,8 @@ export class OrdersService {
       method: row.method,
       coupon: row.couponCode,
       couponPct: row.couponPct,
+      storeCreditCode: row.storeCreditCode,
+      storeCreditAmount: row.storeCreditAmount,
       status: row.status,
       shipStage: row.shipStage,
       delivery: {
@@ -296,14 +342,11 @@ export class OrdersService {
           }
         : {}),
       ...(row.gateway ? { gateway: row.gateway } : {}),
-      ...(row.pagbankCheckoutId
-        ? { pagbankCheckoutId: row.pagbankCheckoutId }
-        : {}),
-      ...(row.pagbankPaymentId
-        ? { pagbankPaymentId: row.pagbankPaymentId }
-        : {}),
+      ...(row.asaasCustomerId ? { asaasCustomerId: row.asaasCustomerId } : {}),
+      ...(row.asaasPaymentId ? { asaasPaymentId: row.asaasPaymentId } : {}),
       ...(row.tracking ? { tracking: row.tracking } : {}),
       ...(row.paidAt ? { paidAt: row.paidAt.getTime() } : {}),
+      ...(row.deliveredAt ? { deliveredAt: row.deliveredAt.getTime() } : {}),
     };
   }
 

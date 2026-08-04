@@ -1,4 +1,5 @@
 export type OrderLine = {
+  id?: number;
   pid: number;
   name: string;
   size: string;
@@ -44,8 +45,11 @@ export type OrderRecord = {
   delivery?: OrderDelivery;
   shipping?: OrderShipping;
   gateway?: string;
-  pagbankCheckoutId?: string | null;
-  pagbankPaymentId?: string | null;
+  asaasCustomerId?: string | null;
+  asaasPaymentId?: string | null;
   tracking?: string;
   paidAt?: number;
+  deliveredAt?: number;
+  storeCreditCode?: string | null;
+  storeCreditAmount?: number;
 };

@@ -124,6 +124,29 @@ export class EmailService {
     });
   }
 
+  async sendReturnUpdate(
+    email: string,
+    name: string,
+    protocol: string,
+    status: string,
+    note = '',
+  ) {
+    await this.safeSend({
+      to: email,
+      name,
+      subject: `Atualização da solicitação ${protocol}`,
+      content: this.layout(
+        'Troca ou devolução atualizada',
+        `<p>A solicitação <strong>${this.escape(protocol)}</strong> foi atualizada para:</p>
+         <p style="font-size:18px;font-weight:700">${this.escape(status)}</p>
+         ${note ? `<p>${this.escape(note)}</p>` : ''}
+         <p>Acompanhe todos os detalhes em Minha Conta.</p>`,
+      ),
+      tag: 'return-update',
+      idempotencyKey: `return-${protocol}-${status}-${Date.now()}`,
+    });
+  }
+
   private async safeSend(message: EmailMessage) {
     try {
       await this.send(message);
@@ -191,7 +214,7 @@ export class EmailService {
               <h1 style="font-size:26px;margin:0 0 20px">${title}</h1>
               <div style="font-size:15px;line-height:1.65">${content}</div>
             </div>
-            <p style="font-size:12px;color:#777064;margin-top:20px">Bubble Fitness Wear · E-mail transacional</p>
+            <p style="font-size:12px;color:#777064;margin-top:20px">Wear Bubble · E-mail transacional</p>
           </div>
         </body>
       </html>`;

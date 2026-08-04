@@ -16,6 +16,10 @@ import { ProductColorEntity } from '../products/entities/product-color.entity';
 import { ProductEntity } from '../products/entities/product.entity';
 import { ProductImageEntity } from '../products/entities/product-image.entity';
 import { MelhorEnvioCredentialEntity } from '../integrations/melhor-envio/entities/melhor-envio-credential.entity';
+import { ReturnRequestEntity } from '../returns/entities/return-request.entity';
+import { ReturnItemEntity } from '../returns/entities/return-item.entity';
+import { ReturnEventEntity } from '../returns/entities/return-event.entity';
+import { StoreCreditEntity } from '../returns/entities/store-credit.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
@@ -53,6 +57,10 @@ const ormconfig: DataSourceOptions = {
     EventEntity,
     LeadEntity,
     MelhorEnvioCredentialEntity,
+    ReturnRequestEntity,
+    ReturnItemEntity,
+    ReturnEventEntity,
+    StoreCreditEntity,
   ],
   migrations: [`${__dirname}/migrations/*{.ts,.js}`],
   migrationsRun: booleanEnv(process.env.DB_MIGRATIONS_RUN, false),

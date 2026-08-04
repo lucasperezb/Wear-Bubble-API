@@ -85,6 +85,29 @@ export class CheckoutCustomerDto {
   state: string;
 }
 
+export class CheckoutCardDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  holderName: string;
+
+  @IsString()
+  @Matches(/^\d{13,19}$/, { message: 'Número do cartão inválido.' })
+  number: string;
+
+  @IsString()
+  @Matches(/^(0[1-9]|1[0-2])$/, { message: 'Mês de validade inválido.' })
+  expiryMonth: string;
+
+  @IsString()
+  @Matches(/^\d{4}$/, { message: 'Ano de validade inválido.' })
+  expiryYear: string;
+
+  @IsString()
+  @Matches(/^\d{3,4}$/, { message: 'CVV inválido.' })
+  ccv: string;
+}
+
 export class CreateCheckoutDto {
   @IsArray()
   @ArrayMinSize(1)
@@ -102,13 +125,18 @@ export class CreateCheckoutDto {
   coupon?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  creditCode?: string | null;
+
+  @IsOptional()
   @IsBoolean()
   bundle?: boolean;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(10000)
-  encryptedCard?: string;
+  @ValidateNested()
+  @Type(() => CheckoutCardDto)
+  card?: CheckoutCardDto;
 
   @IsOptional()
   @Type(() => Number)

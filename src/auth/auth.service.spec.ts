@@ -16,13 +16,13 @@ describe('AuthService password reset', () => {
     const users = {
       findByEmail: jest.fn(),
       findByUid: jest.fn(),
-      save: jest.fn(async (value) => value),
+      save: jest.fn((value) => Promise.resolve(value)),
     };
     const passwordResetTokens = {
       findOne: jest.fn(),
       update: jest.fn(),
       create: jest.fn((value) => value),
-      save: jest.fn(async (value) => ({ id: 'reset-id', ...value })),
+      save: jest.fn((value) => Promise.resolve({ id: 'reset-id', ...value })),
       delete: jest.fn(),
     };
     const service = new AuthService(
@@ -51,7 +51,7 @@ describe('AuthService password reset', () => {
     expect(result.ok).toBe(true);
     expect(emailSender.sendPasswordReset).toHaveBeenCalledTimes(1);
     const [, resetUrl] = emailSender.sendPasswordReset.mock.calls[0];
-    const url = new URL(resetUrl);
+    const url = new URL(String(resetUrl));
     const token = url.searchParams.get('token') || '';
     expect(url.origin + url.pathname).toBe(
       'https://wearbubble.com.br/redefinir-senha',

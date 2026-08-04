@@ -175,24 +175,45 @@ export class OrderEntity extends TimestampedEntity {
   gateway: string | null;
 
   @Column({
-    name: 'pagbank_checkout_id',
+    name: 'asaas_customer_id',
     type: 'varchar',
     length: 120,
     nullable: true,
   })
-  pagbankCheckoutId: string | null;
+  asaasCustomerId: string | null;
 
   @Column({
-    name: 'pagbank_payment_id',
+    name: 'asaas_payment_id',
     type: 'varchar',
     length: 120,
     nullable: true,
   })
-  pagbankPaymentId: string | null;
+  asaasPaymentId: string | null;
 
   @Column({ type: 'varchar', length: 160, nullable: true })
   tracking: string | null;
 
   @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
   paidAt: Date | null;
+
+  @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt: Date | null;
+
+  @Column({
+    name: 'store_credit_code',
+    type: 'varchar',
+    length: 40,
+    nullable: true,
+  })
+  storeCreditCode: string | null;
+
+  @Column({
+    name: 'store_credit_amount',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  storeCreditAmount: number;
 }

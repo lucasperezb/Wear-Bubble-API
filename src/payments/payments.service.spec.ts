@@ -6,8 +6,8 @@ describe('PaymentsService.cancelOrder', () => {
     id: '67c53525-2a4c-496d-9844-d1326376f134',
     number: 'B00001',
     status: 'paid',
-    gateway: 'pagbank',
-    pagbankPaymentId: 'CHAR_TESTE',
+    gateway: 'asaas',
+    asaasPaymentId: 'pay_TESTE',
     total: 49.9,
   };
   const orderRecord = {
@@ -26,6 +26,7 @@ describe('PaymentsService.cancelOrder', () => {
     findEntity: jest.Mock;
     toRecord: jest.Mock;
     saveEntity: jest.Mock;
+    releaseStoreCredit: jest.Mock;
   };
   let products: {
     findEntity: jest.Mock;
@@ -41,6 +42,7 @@ describe('PaymentsService.cancelOrder', () => {
         .fn()
         .mockImplementation((row) => ({ ...orderRecord, status: row.status })),
       saveEntity: jest.fn().mockResolvedValue(undefined),
+      releaseStoreCredit: jest.fn().mockResolvedValue(undefined),
     };
     products = {
       findEntity: jest.fn().mockResolvedValue({ id: 1, stock: 3 }),
@@ -48,9 +50,10 @@ describe('PaymentsService.cancelOrder', () => {
     };
     service = new PaymentsService(
       {
-        pagbankToken: 'sandbox-token',
-        pagbankBaseUrl: 'https://sandbox.api.pagseguro.com',
-        pagbankEnv: 'sandbox',
+        asaasApiKey: '$aact_hmlg_test',
+        asaasBaseUrl: 'https://api-sandbox.asaas.com/v3',
+        asaasEnv: 'sandbox',
+        asaasUserAgent: 'WearBubble/Test',
       } as never,
       orders as never,
       products as never,
@@ -70,21 +73,23 @@ describe('PaymentsService.cancelOrder', () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 'CHAR_TESTE',
-          status: 'CANCELED',
-          amount: { value: 4990, currency: 'BRL' },
+          id: 'pay_TESTE',
+          status: 'REFUNDED',
+          value: 49.9,
         }),
-        { status: 201, headers: { 'content-type': 'application/json' } },
+        { status: 200, headers: { 'content-type': 'application/json' } },
       ),
     );
 
     const result = await service.cancelOrder(orderRow.id);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://sandbox.api.pagseguro.com/charges/CHAR_TESTE/cancel',
+      'https://api-sandbox.asaas.com/v3/payments/pay_TESTE/refund',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ amount: { value: 4990 } }),
+        body: JSON.stringify({
+          description: `Cancelamento do pedido ${orderRow.number}`,
+        }),
       }),
     );
     expect(products.saveEntity).toHaveBeenCalledWith(
@@ -93,20 +98,21 @@ describe('PaymentsService.cancelOrder', () => {
     expect(orders.saveEntity).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'canceled' }),
     );
+    expect(orders.releaseStoreCredit).toHaveBeenCalled();
     expect(result.cancellation).toEqual(
       expect.objectContaining({
-        responseStatus: 201,
-        chargeId: 'CHAR_TESTE',
-        status: 'CANCELED',
+        responseStatus: 200,
+        paymentId: 'pay_TESTE',
+        status: 'REFUNDED',
       }),
     );
   });
 
-  it('keeps the order paid when PagBank rejects the cancellation', async () => {
+  it('keeps the order paid when Asaas rejects the refund', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          error_messages: [{ description: 'Charge cannot be canceled' }],
+          errors: [{ description: 'Payment cannot be refunded' }],
         }),
         { status: 400, headers: { 'content-type': 'application/json' } },
       ),

@@ -61,4 +61,9 @@ export class CreateOrderDto {
   @IsString()
   @MaxLength(80)
   coupon?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  creditCode?: string | null;
 }

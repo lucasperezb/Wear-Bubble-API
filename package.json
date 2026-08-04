@@ -1,7 +1,7 @@
 {
   "name": "bubble-store-backend",
-  "version": "2.0.0",
-  "description": "Back-end REST (NestJS) da loja Bubble Fitness Wear",
+  "version": "2.1.0",
+  "description": "Back-end REST (NestJS) da Wear Bubble",
   "private": true,
   "main": "dist/main.js",
   "engines": {

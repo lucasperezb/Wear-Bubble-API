@@ -21,5 +21,6 @@ import { MelhorEnvioModule } from '../integrations/melhor-envio/melhor-envio.mod
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService],
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}

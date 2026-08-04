@@ -17,6 +17,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const env = app.get(AppConfigService);
   const auth = app.get(AuthTokenService);
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(cookieParser());
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/auth')) {
@@ -63,7 +64,7 @@ async function bootstrap() {
   setupSwagger(app);
 
   await app.listen(env.port);
-  console.log(`Bubble Store API NestJS: http://localhost:${env.port}/api`);
+  console.log(`Wear Bubble API NestJS: http://localhost:${env.port}/api`);
   console.log(`Swagger: http://localhost:${env.port}/api/docs`);
   console.log(`Front-end autorizado: ${env.frontendOrigins.join(', ')}`);
   console.log(`Gerente: ${env.managerEmail}`);
