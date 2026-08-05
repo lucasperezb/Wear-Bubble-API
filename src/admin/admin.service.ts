@@ -179,6 +179,7 @@ export class AdminService {
         active: coupon.active,
         expiresAt: coupon.expiresAt?.getTime() || null,
         maxUses: coupon.maxUses,
+        maxUsesPerCustomer: coupon.maxUsesPerCustomer,
         minSubtotal: coupon.minSubtotal,
         assignedTo: coupon.assignedTo,
         uses: coupon.uses,

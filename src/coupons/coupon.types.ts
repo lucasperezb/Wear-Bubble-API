@@ -4,6 +4,7 @@ export type CouponRecord = {
   active: boolean;
   expiresAt: number | null;
   maxUses: number | null;
+  maxUsesPerCustomer: number | null;
   minSubtotal: number;
   assignedTo: string;
   uses: number;

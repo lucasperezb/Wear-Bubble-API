@@ -122,7 +122,7 @@ export class OrdersService {
     let couponPct = 0;
     let coupon: CouponRecord | null = null;
     if (couponCode) {
-      coupon = await this.coupons.getActive(couponCode);
+      coupon = await this.coupons.getActive(couponCode, uid, delivery?.email);
       if (coupon.minSubtotal && subtotal < coupon.minSubtotal)
         throw new BadRequestException(
           `O cupom exige uma compra mínima de R$ ${coupon.minSubtotal}.`,

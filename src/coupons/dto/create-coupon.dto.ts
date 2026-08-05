@@ -39,6 +39,12 @@ export class CreateCouponDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  maxUsesPerCustomer?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minSubtotal?: number;

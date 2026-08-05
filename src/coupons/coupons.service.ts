@@ -6,7 +6,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { ILike, In, Repository } from 'typeorm';
+import { OrderEntity } from '../orders/entities/order.entity';
 import { CouponRecord } from './coupon.types';
 import { seedCoupons } from './coupon.seed';
 import { CreateCouponDto } from './dto/create-coupon.dto';
@@ -18,6 +19,8 @@ export class CouponsService implements OnModuleInit {
   constructor(
     @InjectRepository(CouponEntity)
     private readonly coupons: Repository<CouponEntity>,
+    @InjectRepository(OrderEntity)
+    private readonly orders: Repository<OrderEntity>,
   ) {}
 
   async onModuleInit() {
@@ -30,6 +33,7 @@ export class CouponsService implements OnModuleInit {
           active: data.active,
           expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
           maxUses: data.maxUses,
+          maxUsesPerCustomer: data.maxUsesPerCustomer,
           minSubtotal: data.minSubtotal,
           assignedTo: data.assignedTo,
           uses: data.uses,
@@ -67,6 +71,9 @@ export class CouponsService implements OnModuleInit {
       active: dto?.active !== false,
       expiresAt: dto?.expiresAt ? Number(dto.expiresAt) : null,
       maxUses: dto?.maxUses ? Number(dto.maxUses) : null,
+      maxUsesPerCustomer: dto?.maxUsesPerCustomer
+        ? Number(dto.maxUsesPerCustomer)
+        : null,
       minSubtotal: Number(dto?.minSubtotal) || 0,
       assignedTo: dto?.assignedTo || '',
       uses: 0,
@@ -79,6 +86,7 @@ export class CouponsService implements OnModuleInit {
         active: data.active,
         expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
         maxUses: data.maxUses,
+        maxUsesPerCustomer: data.maxUsesPerCustomer,
         minSubtotal: data.minSubtotal,
         assignedTo: data.assignedTo,
         uses: data.uses,
@@ -97,6 +105,7 @@ export class CouponsService implements OnModuleInit {
       'pct',
       'active',
       'maxUses',
+      'maxUsesPerCustomer',
       'minSubtotal',
       'assignedTo',
     ] as const;
@@ -117,7 +126,11 @@ export class CouponsService implements OnModuleInit {
     return { removed: result.affected || 0 };
   }
 
-  async getActive(codeParam: string): Promise<CouponRecord> {
+  async getActive(
+    codeParam: string,
+    customerUid?: string,
+    customerEmail?: string,
+  ): Promise<CouponRecord> {
     const code = String(codeParam || '')
       .trim()
       .toUpperCase();
@@ -127,8 +140,35 @@ export class CouponsService implements OnModuleInit {
     if (!coupon.active) throw new BadRequestException('Cupom pausado.');
     if (coupon.expiresAt && Date.now() > coupon.expiresAt)
       throw new BadRequestException('Cupom expirado.');
-    if (coupon.maxUses && coupon.uses >= coupon.maxUses)
-      throw new BadRequestException('Cupom atingiu o limite de usos.');
+    if (coupon.maxUses) {
+      const activeUses = await this.orders.count({
+        where: {
+          couponCode: coupon.code,
+          status: In(['pending', 'paid']),
+        },
+      });
+      if (activeUses >= coupon.maxUses)
+        throw new BadRequestException('Cupom atingiu o limite geral de usos.');
+    }
+    if (coupon.maxUsesPerCustomer && (customerUid || customerEmail)) {
+      const identities = [
+        ...(customerUid ? [{ customerUid }] : []),
+        ...(customerEmail
+          ? [{ customerEmail: ILike(customerEmail.trim()) }]
+          : []),
+      ];
+      const customerUses = await this.orders.count({
+        where: identities.map((identity) => ({
+          couponCode: coupon.code,
+          status: In(['pending', 'paid']),
+          ...identity,
+        })),
+      });
+      if (customerUses >= coupon.maxUsesPerCustomer)
+        throw new BadRequestException(
+          `Este cupom permite no máximo ${coupon.maxUsesPerCustomer} uso${coupon.maxUsesPerCustomer === 1 ? '' : 's'} por cliente.`,
+        );
+    }
     return coupon;
   }
 
@@ -146,6 +186,7 @@ export class CouponsService implements OnModuleInit {
       active: row.active,
       expiresAt: row.expiresAt?.getTime() || null,
       maxUses: row.maxUses,
+      maxUsesPerCustomer: row.maxUsesPerCustomer,
       minSubtotal: row.minSubtotal,
       assignedTo: row.assignedTo,
       uses: row.uses,

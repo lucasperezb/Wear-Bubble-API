@@ -7,6 +7,7 @@ export const seedCoupons: CouponRecord[] = [
     active: true,
     expiresAt: null,
     maxUses: null,
+    maxUsesPerCustomer: 1,
     minSubtotal: 0,
     assignedTo: 'Clube Bubble',
     uses: 0,

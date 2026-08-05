@@ -27,6 +27,9 @@ export class CouponEntity extends TimestampedEntity {
   @Column({ name: 'max_uses', type: 'integer', nullable: true })
   maxUses: number | null;
 
+  @Column({ name: 'max_uses_per_customer', type: 'integer', nullable: true })
+  maxUsesPerCustomer: number | null;
+
   @Column({
     name: 'min_subtotal',
     type: 'numeric',
