@@ -243,7 +243,6 @@ export class PaymentsService {
         method,
         coupon: dto.coupon,
         creditCode: dto.creditCode,
-        bundle: dto.bundle,
       },
       customer.delivery,
       shipping,

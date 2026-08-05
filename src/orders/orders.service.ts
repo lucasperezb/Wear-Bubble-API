@@ -49,13 +49,8 @@ export class OrdersService {
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
     const method = dto?.method === 'Pix' ? 'Pix' : 'Cartão de crédito';
-    const bundleCounts = new Map<string, number>();
-    for (const item of items)
-      if (item.bundle)
-        bundleCounts.set(item.bundle, (bundleCounts.get(item.bundle) || 0) + 1);
-
     let subtotal = 0;
-    let bundleSubtotal = 0;
+    const bundleLines: BundleLine[] = [];
     const lines: OrderRecord['items'] = [];
     for (const item of items) {
       const row = await this.products.findEntity(Number(item.pid));
@@ -100,11 +95,13 @@ export class OrdersService {
         );
       const lineTotal = product.price * qty;
       subtotal += lineTotal;
-      if (
-        dto.bundle ||
-        (item.bundle && (bundleCounts.get(item.bundle) || 0) >= 2)
-      )
-        bundleSubtotal += lineTotal;
+      bundleLines.push({
+        bundle: String(item.bundle || '').trim(),
+        productId: product.id,
+        category: product.cat,
+        quantity: qty,
+        unitPrice: product.price,
+      });
       lines.push({
         id: 0,
         pid: product.id,
@@ -115,7 +112,8 @@ export class OrdersService {
         price: product.price,
       });
     }
-    subtotal -= bundleSubtotal * this.config.bundleDiscount;
+    subtotal -=
+      calculateBundleSubtotal(bundleLines) * this.config.bundleDiscount;
 
     const couponCode =
       String(dto?.coupon || '')
@@ -358,4 +356,33 @@ export class OrdersService {
     await this.counters.save(counter);
     return `B${String(counter.value).padStart(5, '0')}`;
   }
+}
+
+type BundleLine = {
+  bundle: string;
+  productId: number;
+  category: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+export function calculateBundleSubtotal(lines: BundleLine[]) {
+  const groups = new Map<string, BundleLine[]>();
+  for (const line of lines) {
+    if (!line.bundle) continue;
+    const grouped = groups.get(line.bundle) || [];
+    grouped.push(line);
+    groups.set(line.bundle, grouped);
+  }
+
+  return [...groups.values()].reduce((subtotal, grouped) => {
+    if (grouped.length !== 2 || grouped[0].productId === grouped[1].productId) {
+      return subtotal;
+    }
+    const bottom = grouped.find((line) => line.category === 'Parte de baixo');
+    const top = grouped.find((line) => line.category === 'Top');
+    if (!bottom || !top) return subtotal;
+    const matchedQuantity = Math.min(bottom.quantity, top.quantity);
+    return subtotal + (bottom.unitPrice + top.unitPrice) * matchedQuantity;
+  }, 0);
 }

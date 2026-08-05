@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -52,10 +51,6 @@ export class CreateOrderDto {
   @IsOptional()
   @IsIn(['Pix', 'Cartao de credito', 'Cartão de crédito'])
   method?: 'Pix' | 'Cartao de credito' | 'Cartão de crédito';
-
-  @IsOptional()
-  @IsBoolean()
-  bundle?: boolean;
 
   @IsOptional()
   @IsString()

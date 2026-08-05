@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsBoolean,
   IsEmail,
   IsIn,
   IsNotEmpty,
@@ -128,10 +127,6 @@ export class CreateCheckoutDto {
   @IsString()
   @MaxLength(40)
   creditCode?: string | null;
-
-  @IsOptional()
-  @IsBoolean()
-  bundle?: boolean;
 
   @IsOptional()
   @ValidateNested()
