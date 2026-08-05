@@ -78,9 +78,12 @@ export class EmailService {
       subject: `Recebemos o pedido ${order.number}`,
       content: this.layout(
         'Pedido recebido',
-        `<p>O pedido <strong>${this.escape(order.number)}</strong> foi criado e está aguardando a confirmação do pagamento.</p>
-         ${this.orderSummary(order)}
-         <p>Assim que o pagamento for confirmado, você receberá outro e-mail.</p>`,
+        `${this.greeting(order)}
+         <p>Recebemos o pedido <strong>${this.escape(order.number)}</strong>. Ele foi registrado e está aguardando a confirmação do pagamento.</p>
+         ${this.statusTimeline(0)}
+         ${this.orderDetails(order)}
+         ${this.nextStep('Assim que o pagamento for confirmado, iniciaremos a separação das suas peças e enviaremos uma nova atualização.')}
+         ${this.accountButton()}`,
       ),
       tag: 'order-created',
       idempotencyKey: `order-created-${order.id}`,
@@ -95,9 +98,12 @@ export class EmailService {
       subject: `Pagamento confirmado · ${order.number}`,
       content: this.layout(
         'Pagamento confirmado',
-        `<p>O pagamento do pedido <strong>${this.escape(order.number)}</strong> foi confirmado.</p>
-         ${this.orderSummary(order)}
-         <p>Agora vamos preparar suas peças para o envio.</p>`,
+        `${this.greeting(order)}
+         <p>O pagamento do pedido <strong>${this.escape(order.number)}</strong> foi aprovado. Suas peças agora entram na fila de separação.</p>
+         ${this.statusTimeline(1)}
+         ${this.orderDetails(order)}
+         ${this.nextStep('Nossa equipe vai conferir produto, cor, tamanho e quantidade antes de preparar a embalagem.')}
+         ${this.accountButton()}`,
       ),
       tag: 'payment-confirmed',
       idempotencyKey: `payment-confirmed-${order.id}`,
@@ -106,18 +112,20 @@ export class EmailService {
 
   async sendShippingUpdate(order: OrderRecord) {
     if (!order.delivery?.email) return;
-    const tracking = order.tracking
-      ? `<p>Código de rastreio: <strong>${this.escape(order.tracking)}</strong></p>`
-      : '';
+    const status = this.shippingStatus(order.shipStage);
     await this.safeSend({
       to: order.delivery.email,
       name: order.delivery.name,
-      subject: `Atualização do envio · ${order.number}`,
+      subject: `${status.subject} · ${order.number}`,
       content: this.layout(
-        'Seu pedido foi atualizado',
-        `<p>O pedido <strong>${this.escape(order.number)}</strong> avançou para a etapa ${order.shipStage} de 5.</p>
-         ${tracking}
-         <p>Você pode acompanhar os detalhes entrando na sua conta Bubble.</p>`,
+        status.title,
+        `${this.greeting(order)}
+         <p>${status.message.replace('{order}', `<strong>${this.escape(order.number)}</strong>`)}</p>
+         ${this.statusTimeline(order.shipStage)}
+         ${order.tracking ? this.trackingBlock(order.tracking) : ''}
+         ${this.orderDetails(order)}
+         ${this.nextStep(status.next)}
+         ${this.accountButton()}`,
       ),
       tag: 'shipping-update',
       idempotencyKey: `shipping-${order.id}-${order.shipStage}-${order.tracking || 'none'}`,
@@ -191,17 +199,188 @@ export class EmailService {
     }
   }
 
-  private orderSummary(order: OrderRecord) {
-    const lines = order.items
+  private orderDetails(order: OrderRecord) {
+    return `<div style="margin:26px 0;border:1px solid #d8d0c0">
+      <div style="background:#171410;color:#ffffff;padding:14px 18px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Detalhes do pedido ${this.escape(order.number)}</div>
+      <div style="padding:18px">
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:18px;font-size:13px">
+          <tr>
+            <td style="padding:0 12px 8px 0;color:#777064">Compra realizada</td>
+            <td style="padding:0 0 8px;text-align:right;font-weight:700">${this.date(order.date)}</td>
+          </tr>
+          <tr>
+            <td style="padding:0 12px 8px 0;color:#777064">Pagamento</td>
+            <td style="padding:0 0 8px;text-align:right;font-weight:700">${this.paymentMethod(order.method)}</td>
+          </tr>
+          ${order.shipping ? `<tr><td style="padding:0 12px;color:#777064">Entrega</td><td style="padding:0;text-align:right;font-weight:700">${this.escape(order.shipping.company)} · ${this.escape(order.shipping.name)}${order.shipping.deliveryTime ? ` · até ${order.shipping.deliveryTime} dias úteis` : ''}</td></tr>` : ''}
+        </table>
+        ${this.productTable(order)}
+        ${this.financialSummary(order)}
+        ${this.deliveryAddress(order)}
+      </div>
+    </div>`;
+  }
+
+  private productTable(order: OrderRecord) {
+    const rows = order.items
       .map(
-        (item) =>
-          `<li>${item.qty}x ${this.escape(item.name)}${item.color ? ` · Cor ${this.escape(item.color)}` : ''} · Tam. ${this.escape(item.size)}</li>`,
+        (item) => `<tr>
+          <td style="padding:13px 8px 13px 0;border-top:1px solid #e8e1d4">
+            <div style="font-weight:700">${this.escape(item.name)}</div>
+            <div style="margin-top:4px;font-size:12px;color:#777064">${item.color ? `Cor: ${this.escape(item.color)} · ` : ''}Tamanho: ${this.escape(item.size)}</div>
+          </td>
+          <td style="padding:13px 8px;border-top:1px solid #e8e1d4;text-align:center;white-space:nowrap">${item.qty} un.</td>
+          <td style="padding:13px 0 13px 8px;border-top:1px solid #e8e1d4;text-align:right;white-space:nowrap">
+            <div>${this.money(item.price * item.qty)}</div>
+            ${item.qty > 1 ? `<div style="font-size:11px;color:#777064">${this.money(item.price)} cada</div>` : ''}
+          </td>
+        </tr>`,
       )
       .join('');
-    return `<div style="background:#f4efe3;padding:18px;margin:22px 0">
-      <ul style="padding-left:18px;margin:0 0 14px">${lines}</ul>
-      <strong>Total: ${this.money(order.total)}</strong>
+    return `<table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr><th style="padding:0 8px 9px 0;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#777064">Produto e variação</th><th style="padding:0 8px 9px;text-align:center;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#777064">Qtd.</th><th style="padding:0 0 9px 8px;text-align:right;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#777064">Subtotal</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  private financialSummary(order: OrderRecord) {
+    const products = order.items.reduce(
+      (total, item) => total + item.price * item.qty,
+      0,
+    );
+    const shipping = order.shipping?.price || 0;
+    const storeCredit = order.storeCreditAmount || 0;
+    const discounts = Math.max(
+      0,
+      products + shipping - order.total - storeCredit,
+    );
+    return `<table role="presentation" style="width:100%;border-collapse:collapse;border-top:2px solid #171410;margin-top:4px;padding-top:10px;font-size:13px">
+      <tr><td style="padding-top:12px;color:#777064">Produtos</td><td style="padding-top:12px;text-align:right">${this.money(products)}</td></tr>
+      <tr><td style="padding-top:7px;color:#777064">Frete</td><td style="padding-top:7px;text-align:right">${shipping > 0 ? this.money(shipping) : 'Grátis'}</td></tr>
+      ${order.coupon ? `<tr><td style="padding-top:7px;color:#777064">Cupom ${this.escape(order.coupon)}</td><td style="padding-top:7px;text-align:right">Aplicado</td></tr>` : ''}
+      ${storeCredit > 0 ? `<tr><td style="padding-top:7px;color:#777064">Crédito da loja</td><td style="padding-top:7px;text-align:right">-${this.money(storeCredit)}</td></tr>` : ''}
+      ${discounts > 0 ? `<tr><td style="padding-top:7px;color:#777064">Descontos</td><td style="padding-top:7px;text-align:right">-${this.money(discounts)}</td></tr>` : ''}
+      <tr><td style="padding-top:12px;font-size:16px;font-weight:700">Total do pedido</td><td style="padding-top:12px;text-align:right;font-size:18px;font-weight:800">${this.money(order.total)}</td></tr>
+    </table>`;
+  }
+
+  private deliveryAddress(order: OrderRecord) {
+    if (!order.delivery) return '';
+    const delivery = order.delivery;
+    return `<div style="margin-top:22px;background:#f4efe3;padding:16px">
+      <div style="margin-bottom:7px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#777064">Endereço de entrega</div>
+      <div style="font-weight:700">${this.escape(delivery.name)}</div>
+      <div>${this.escape(delivery.street)}, ${this.escape(delivery.number)} · ${this.escape(delivery.neighborhood)}</div>
+      ${delivery.reference ? `<div>${this.escape(delivery.reference)}</div>` : ''}
+      <div>${this.escape(delivery.city)} - ${this.escape(delivery.state)} · CEP ${this.escape(delivery.cep)}</div>
     </div>`;
+  }
+
+  private statusTimeline(stage: number) {
+    const labels = [
+      'Recebido',
+      'Pagamento',
+      'Separação',
+      'Enviado',
+      'Em trânsito',
+      'Entregue',
+    ];
+    const safeStage = Math.max(0, Math.min(5, Number(stage) || 0));
+    const cells = labels
+      .map(
+        (label, index) =>
+          `<td style="width:16.66%;padding:8px 2px;border-top:4px solid ${index <= safeStage ? '#c94e82' : '#d8d0c0'};font-size:9px;font-weight:${index === safeStage ? '800' : '500'};text-align:center;color:${index <= safeStage ? '#171410' : '#999184'}">${label}</td>`,
+      )
+      .join('');
+    return `<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:3px;margin:24px 0"><tr>${cells}</tr></table>`;
+  }
+
+  private shippingStatus(stage: number) {
+    const statuses = [
+      {
+        subject: 'Pedido confirmado',
+        title: 'Pedido confirmado',
+        message:
+          'O pedido {order} foi confirmado e será encaminhado para pagamento.',
+        next: 'A próxima etapa é a confirmação do pagamento.',
+      },
+      {
+        subject: 'Pagamento confirmado',
+        title: 'Pagamento confirmado',
+        message: 'O pagamento do pedido {order} foi confirmado.',
+        next: 'A próxima etapa é a separação e conferência das peças.',
+      },
+      {
+        subject: 'Pedido em separação',
+        title: 'Estamos preparando suas peças',
+        message:
+          'O pedido {order} está em separação. Estamos conferindo produto, cor, tamanho e quantidade.',
+        next: 'Depois da conferência, o pedido será embalado e entregue à transportadora.',
+      },
+      {
+        subject: 'Pedido enviado',
+        title: 'Seu pedido foi enviado',
+        message:
+          'O pedido {order} foi entregue à transportadora e iniciou o processo de envio.',
+        next: 'O rastreio pode levar algumas horas para apresentar a primeira movimentação.',
+      },
+      {
+        subject: 'Pedido em trânsito',
+        title: 'Seu pedido está a caminho',
+        message:
+          'O pedido {order} está em trânsito para o endereço informado na compra.',
+        next: 'Acompanhe o código de rastreio e certifique-se de que haverá alguém no endereço para receber.',
+      },
+      {
+        subject: 'Pedido entregue',
+        title: 'Pedido entregue',
+        message: 'O pedido {order} foi marcado como entregue.',
+        next: 'Confira suas peças ao receber. Se precisar de troca ou devolução, abra a solicitação em Minha Conta.',
+      },
+    ];
+    return statuses[Math.max(0, Math.min(5, Number(stage) || 0))];
+  }
+
+  private trackingBlock(tracking: string) {
+    return `<div style="margin:22px 0;background:#171410;color:#ffffff;padding:18px;text-align:center">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#f0b9cd">Código de rastreio</div>
+      <div style="margin-top:8px;font-size:20px;font-weight:800;letter-spacing:.08em">${this.escape(tracking)}</div>
+    </div>`;
+  }
+
+  private nextStep(message: string) {
+    return `<div style="margin:22px 0;border-left:4px solid #c94e82;background:#f9f5ec;padding:14px 16px"><strong>Próximo passo</strong><br>${message}</div>`;
+  }
+
+  private greeting(order: OrderRecord) {
+    const firstName = order.delivery?.name?.trim().split(/\s+/)[0];
+    return firstName
+      ? `<p>Olá, <strong>${this.escape(firstName)}</strong>.</p>`
+      : '';
+  }
+
+  private accountButton() {
+    const url = `${this.config.storeUrl.replace(/\/$/, '')}/conta`;
+    return `<p style="margin:28px 0 4px;text-align:center"><a href="${this.escape(url)}" style="display:inline-block;background:#171410;color:#ffffff;padding:14px 22px;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase">Acompanhar meu pedido</a></p>`;
+  }
+
+  private paymentMethod(method: string) {
+    const methods: Record<string, string> = {
+      pix: 'Pix',
+      PIX: 'Pix',
+      credit_card: 'Cartão de crédito',
+      CREDIT_CARD: 'Cartão de crédito',
+      card: 'Cartão de crédito',
+    };
+    return methods[method] || this.escape(method || 'Não informado');
+  }
+
+  private date(value: number) {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+      timeZone: 'America/Sao_Paulo',
+    }).format(new Date(value));
   }
 
   private layout(title: string, content: string) {
