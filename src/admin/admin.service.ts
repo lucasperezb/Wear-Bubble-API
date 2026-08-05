@@ -77,6 +77,7 @@ export class AdminService {
         sizes: row.sizes,
         material: row.material,
         pair: row.pairId || 0,
+        bundlePosition: row.bundlePosition || 0,
         sports: row.sports,
         colors: row.colors.map((color) => ({
           n: color.name,

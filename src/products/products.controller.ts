@@ -20,6 +20,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
 import { ReorderProductImagesDto } from './dto/reorder-product-images.dto';
+import { BundleSelectionDto } from './dto/bundle-selection.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -38,6 +39,14 @@ export class ProductsController {
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
   create(@Body() dto: CreateProductDto) {
     return this.products.create(dto);
+  }
+
+  @Patch('bundle-selection')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  saveBundleSelection(@Body() dto: BundleSelectionDto) {
+    return this.products.saveBundleSelection(dto.bottomIds, dto.topIds);
   }
 
   @Patch(':id')

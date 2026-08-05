@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ProductRecord } from './product.types';
 import { seedProducts } from './product.seed';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -68,6 +68,7 @@ export class ProductsService implements OnModuleInit {
       sizes: Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G'],
       material: dto.material || '',
       pair: Number(dto.pair) || 0,
+      bundlePosition: 0,
       sports: Array.isArray(dto.sports) ? dto.sports : [],
       colors,
       desc: dto.desc || '',
@@ -81,6 +82,7 @@ export class ProductsService implements OnModuleInit {
   async update(id: number, dto: UpdateProductDto) {
     const row = await this.products.findOneBy({ id });
     if (!row) throw new NotFoundException('Produto não encontrado.');
+    const previousCategory = row.cat;
     const allowed = [
       'name',
       'cat',
@@ -100,6 +102,7 @@ export class ProductsService implements OnModuleInit {
     ] as const;
     for (const key of allowed)
       if (key in dto) (row as any)[key] = (dto as any)[key];
+    if ('cat' in dto && dto.cat !== previousCategory) row.bundlePosition = null;
     if ('pair' in dto) row.pairId = dto.pair ? Number(dto.pair) : null;
     if ('colors' in dto) {
       const colors = Array.isArray(dto.colors) ? dto.colors : [];
@@ -110,6 +113,49 @@ export class ProductsService implements OnModuleInit {
     }
     await this.products.save(row);
     return this.toRecord(row);
+  }
+
+  async saveBundleSelection(bottomIds: number[], topIds: number[]) {
+    const ids = [...bottomIds, ...topIds];
+    if (new Set(ids).size !== 6)
+      throw new BadRequestException('Selecione seis produtos diferentes.');
+    const selected = await this.products.find({ where: { id: In(ids) } });
+    if (selected.length !== 6)
+      throw new BadRequestException('Um dos produtos selecionados não existe.');
+    const byId = new Map(selected.map((product) => [product.id, product]));
+    const invalidBottom = bottomIds.some(
+      (id) => byId.get(id)?.cat !== 'Parte de baixo',
+    );
+    const invalidTop = topIds.some((id) => byId.get(id)?.cat !== 'Top');
+    if (invalidBottom || invalidTop)
+      throw new BadRequestException(
+        'Escolha três partes de baixo e três tops nas categorias corretas.',
+      );
+    if (selected.some((product) => !product.active || product.stock <= 0))
+      throw new BadRequestException(
+        'Os produtos da vitrine devem estar ativos e com estoque.',
+      );
+
+    await this.products.manager.transaction(async (manager) => {
+      await manager
+        .createQueryBuilder()
+        .update(ProductEntity)
+        .set({ bundlePosition: null })
+        .execute();
+      for (const [position, id] of bottomIds.entries())
+        await manager.update(
+          ProductEntity,
+          { id },
+          { bundlePosition: position + 1 },
+        );
+      for (const [position, id] of topIds.entries())
+        await manager.update(
+          ProductEntity,
+          { id },
+          { bundlePosition: position + 1 },
+        );
+    });
+    return this.listActive();
   }
 
   async updateImage(id: number, image?: string) {
@@ -255,6 +301,7 @@ export class ProductsService implements OnModuleInit {
       sizes: row.sizes,
       material: row.material,
       pair: row.pairId || 0,
+      bundlePosition: row.bundlePosition || 0,
       sports: row.sports,
       colors: (row.colors || [])
         .sort((a, b) => a.position - b.position)
@@ -294,6 +341,7 @@ export class ProductsService implements OnModuleInit {
       sizes: data.sizes,
       material: data.material,
       pairId: data.pair || null,
+      bundlePosition: data.bundlePosition || null,
       sports: data.sports,
       colors: this.createColors(data.id, data.colors),
       desc: data.desc,

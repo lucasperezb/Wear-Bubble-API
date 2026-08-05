@@ -1,6 +1,6 @@
 {
   "name": "bubble-store-backend",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Back-end REST (NestJS) da Wear Bubble",
   "private": true,
   "main": "dist/main.js",

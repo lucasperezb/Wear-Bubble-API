@@ -69,6 +69,9 @@ export class ProductEntity extends TimestampedEntity {
   @Column({ name: 'pair_id', type: 'integer', nullable: true })
   pairId: number | null;
 
+  @Column({ name: 'bundle_position', type: 'smallint', nullable: true })
+  bundlePosition: number | null;
+
   @ManyToOne(() => ProductEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'pair_id', foreignKeyConstraintName: 'fk_products_pair' })
   pairedProduct?: ProductEntity | null;

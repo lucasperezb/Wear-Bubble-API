@@ -13,6 +13,7 @@ export type ProductRecord = {
   sizes: string[];
   material: string;
   pair: number;
+  bundlePosition?: number;
   sports: string[];
   colors: Array<{
     n: string;
