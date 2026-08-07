@@ -33,6 +33,27 @@ npm run start:dev
 
 A API fica disponível em `http://localhost:4007/api`.
 
+## E-mail da Hostinger na AWS
+
+Mesmo hospedada na AWS, a API envia pelas caixas da Hostinger usando SMTP. No
+ambiente da API, configure:
+
+```env
+SMTP_HOST=smtp.hostinger.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=contato@wearbubble.com.br
+SMTP_PASSWORD=SENHA_DA_CAIXA_POSTAL
+SMTP_FROM_EMAIL=contato@wearbubble.com.br
+SMTP_FROM_NAME=Wear Bubble
+```
+
+Use a senha da caixa postal e mantenha a saída TCP 465 liberada na AWS; a porta
+não precisa ser aberta para entrada. O backend valida a conexão SMTP ao iniciar
+e registra `SMTP conectado a smtp.hostinger.com:465` no log quando ela estiver
+pronta. Em produção, credenciais ausentes causam erro explícito no envio em vez
+de simularem sucesso.
+
 ## Swagger
 
 Com a aplicação em execução, acesse:

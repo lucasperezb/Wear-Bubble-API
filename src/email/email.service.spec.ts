@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { OrderRecord } from '../orders/order.types';
 import { EmailService } from './email.service';
@@ -87,5 +88,26 @@ describe('EmailService order updates', () => {
     expect(message.content).toContain('Seu pedido foi enviado');
     expect(message.content).toContain('BR123456789');
     expect(message.content).toContain('transportadora');
+  });
+
+  it('não simula envio sem SMTP no ambiente de produção', async () => {
+    const service = new EmailService({
+      smtpConfigured: false,
+      isProduction: true,
+    } as AppConfigService);
+
+    await expect(
+      (
+        service as unknown as {
+          send(message: Record<string, string>): Promise<unknown>;
+        }
+      ).send({
+        to: 'maria@example.com',
+        subject: 'Teste',
+        content: '<p>Teste</p>',
+        tag: 'test',
+        idempotencyKey: 'test-1',
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

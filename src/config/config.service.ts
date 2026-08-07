@@ -99,6 +99,20 @@ export class AppConfigService {
     return this.config.get<string>('SMTP_FROM_NAME') || 'Wear Bubble';
   }
 
+  get smtpConfigured() {
+    return Boolean(
+      this.smtpHost &&
+      this.smtpPort &&
+      this.smtpUser &&
+      this.smtpPassword &&
+      this.smtpFromEmail,
+    );
+  }
+
+  get isProduction() {
+    return this.config.get<string>('NODE_ENV') === 'production';
+  }
+
   get storeUrl() {
     return this.config.get<string>('STORE_URL') || this.frontendOrigin;
   }

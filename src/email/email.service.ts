@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import nodemailer, { Transporter } from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { OrderRecord } from '../orders/order.types';
@@ -13,20 +17,49 @@ type EmailMessage = {
 };
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private readonly transporter?: Transporter;
 
   constructor(private readonly config: AppConfigService) {
-    if (this.config.smtpPassword) {
+    if (this.config.smtpConfigured) {
       this.transporter = nodemailer.createTransport({
         host: this.config.smtpHost,
         port: this.config.smtpPort,
         secure: this.config.smtpSecure,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 30_000,
         auth: {
           user: this.config.smtpUser,
           pass: this.config.smtpPassword,
         },
+        tls: {
+          minVersion: 'TLSv1.2',
+          servername: this.config.smtpHost,
+        },
       });
+    }
+  }
+
+  async onModuleInit() {
+    if (!this.transporter) {
+      const message =
+        '[email] SMTP não configurado. Defina SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD e SMTP_FROM_EMAIL.';
+      if (this.config.isProduction) console.error(message);
+      else console.warn(message);
+      return;
+    }
+
+    try {
+      await this.transporter.verify();
+      console.log(
+        `[email] SMTP conectado a ${this.config.smtpHost}:${this.config.smtpPort}`,
+      );
+    } catch (error) {
+      console.error(
+        `[email] não foi possível conectar a ${this.config.smtpHost}:${this.config.smtpPort}`,
+        this.smtpError(error),
+      );
     }
   }
 
@@ -168,6 +201,11 @@ export class EmailService {
 
   private async send(message: EmailMessage) {
     if (!this.transporter) {
+      if (this.config.isProduction) {
+        throw new ServiceUnavailableException(
+          'O serviço de e-mail não está configurado.',
+        );
+      }
       console.log(
         `[email:dev] ${message.tag} para ${message.to}: ${message.subject}`,
       );
@@ -192,11 +230,31 @@ export class EmailService {
         },
       });
       return { messageId: result.messageId };
-    } catch {
+    } catch (error) {
+      console.error(
+        `[email] erro SMTP ao enviar ${message.tag}`,
+        this.smtpError(error),
+      );
       throw new ServiceUnavailableException(
         'Não foi possível enviar o e-mail.',
       );
     }
+  }
+
+  private smtpError(error: unknown) {
+    if (!(error instanceof Error)) return { message: String(error) };
+    const smtpError = error as Error & {
+      code?: string;
+      command?: string;
+      responseCode?: number;
+    };
+    return {
+      name: smtpError.name,
+      message: smtpError.message,
+      code: smtpError.code,
+      command: smtpError.command,
+      responseCode: smtpError.responseCode,
+    };
   }
 
   private orderDetails(order: OrderRecord) {
