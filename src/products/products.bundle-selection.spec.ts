@@ -83,6 +83,50 @@ describe('ProductsService bundle selection', () => {
     );
   });
 
+  it('aceita as novas categorias na seleção de conjuntos', async () => {
+    const rows = [
+      makeProduct(1, 'Shorts/Calça'),
+      makeProduct(2, 'Shorts/Calça'),
+      makeProduct(3, 'Shorts/Calça'),
+      makeProduct(4, 'Blusas/Top'),
+      makeProduct(5, 'Blusas/Top'),
+      makeProduct(6, 'Blusas/Top'),
+    ];
+    const { service, products } = setup(rows);
+
+    await service.saveBundleSelection([1, 2, 3], [4, 5, 6]);
+
+    expect(products.manager.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('salva quantidades independentes em cada coluna', async () => {
+    const rows = [
+      makeProduct(1, 'Shorts/Calça'),
+      makeProduct(2, 'Shorts/Calça'),
+      makeProduct(3, 'Shorts/Calça'),
+      makeProduct(4, 'Shorts/Calça'),
+      makeProduct(5, 'Blusas/Top'),
+      makeProduct(6, 'Blusas/Top'),
+    ];
+    const { service, manager } = setup(rows);
+
+    await service.saveBundleSelection([1, 2, 3, 4], [5, 6]);
+
+    expect(manager.update).toHaveBeenCalledTimes(6);
+    expect(manager.update).toHaveBeenNthCalledWith(
+      4,
+      ProductEntity,
+      { id: 4 },
+      { bundlePosition: 4 },
+    );
+    expect(manager.update).toHaveBeenNthCalledWith(
+      6,
+      ProductEntity,
+      { id: 6 },
+      { bundlePosition: 2 },
+    );
+  });
+
   it('recusa produto na categoria errada', async () => {
     const rows = [
       makeProduct(1, 'Top'),

@@ -15,6 +15,7 @@ import { ProductImageEntity } from './product-image.entity';
 
 @Entity({ name: 'products' })
 @Check('ck_products_stock', 'stock >= 0')
+@Check('ck_products_promo_pct', 'promo_pct BETWEEN 0 AND 90')
 export class ProductEntity extends TimestampedEntity {
   @PrimaryColumn({ type: 'integer' })
   id: number;
@@ -35,6 +36,9 @@ export class ProductEntity extends TimestampedEntity {
     transformer: decimalTransformer,
   })
   price: number;
+
+  @Column({ name: 'promo_pct', type: 'smallint', default: 0 })
+  promoPct: number;
 
   @Column({ type: 'varchar', length: 100, default: '' })
   tag: string;

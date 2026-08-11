@@ -10,6 +10,15 @@ describe('calculateBundleSubtotal', () => {
     ).toBe(180);
   });
 
+  it('discounts matched Blusas/Top and Shorts/Calça quantities', () => {
+    expect(
+      calculateBundleSubtotal([
+        { bundle: 'look-1', productId: 1, category: 'Shorts/Calça', quantity: 1, unitPrice: 100 },
+        { bundle: 'look-1', productId: 2, category: 'Blusas/Top', quantity: 1, unitPrice: 80 },
+      ]),
+    ).toBe(180);
+  });
+
   it('does not discount forged groups with invalid categories', () => {
     expect(
       calculateBundleSubtotal([
