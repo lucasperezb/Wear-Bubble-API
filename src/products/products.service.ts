@@ -56,16 +56,17 @@ export class ProductsService implements OnModuleInit {
     const data: ProductRecord = {
       id,
       name: String(dto.name || 'Novo produto'),
-      cat: dto.cat || 'Top',
+      cat: dto.cat || 'Blusas/Top',
       sub: dto.sub || '',
       price: Number(dto.price) || 0,
+      promoPct: normalizePromoPct(dto.promoPct),
       tag: dto.tag || '',
       icon: dto.icon || 'top',
       rating: Number(dto.rating) || 5,
       reviews: Number(dto.reviews) || 0,
       stock: variantStock ?? (Number(dto.stock) || 0),
       active: dto.active !== false,
-      sizes: Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G'],
+      sizes: sortProductSizes(Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G']),
       material: dto.material || '',
       pair: Number(dto.pair) || 0,
       bundlePosition: 0,
@@ -88,6 +89,7 @@ export class ProductsService implements OnModuleInit {
       'cat',
       'sub',
       'price',
+      'promoPct',
       'stock',
       'tag',
       'sports',
@@ -102,6 +104,8 @@ export class ProductsService implements OnModuleInit {
     ] as const;
     for (const key of allowed)
       if (key in dto) (row as any)[key] = (dto as any)[key];
+    if ('promoPct' in dto) row.promoPct = normalizePromoPct(dto.promoPct);
+    if ('sizes' in dto) row.sizes = sortProductSizes(row.sizes);
     if ('cat' in dto && dto.cat !== previousCategory) row.bundlePosition = null;
     if ('pair' in dto) row.pairId = dto.pair ? Number(dto.pair) : null;
     if ('colors' in dto) {
@@ -117,16 +121,20 @@ export class ProductsService implements OnModuleInit {
 
   async saveBundleSelection(bottomIds: number[], topIds: number[]) {
     const ids = [...bottomIds, ...topIds];
-    if (new Set(ids).size !== 6)
-      throw new BadRequestException('Selecione seis produtos diferentes.');
+    if (!bottomIds.length || !topIds.length)
+      throw new BadRequestException('Selecione pelo menos um produto em cada coluna.');
+    if (new Set(ids).size !== ids.length)
+      throw new BadRequestException('Selecione produtos diferentes em cada posição.');
     const selected = await this.products.find({ where: { id: In(ids) } });
-    if (selected.length !== 6)
+    if (selected.length !== ids.length)
       throw new BadRequestException('Um dos produtos selecionados não existe.');
     const byId = new Map(selected.map((product) => [product.id, product]));
     const invalidBottom = bottomIds.some(
-      (id) => byId.get(id)?.cat !== 'Parte de baixo',
+      (id) => !isBundleBottomCategory(byId.get(id)?.cat || ''),
     );
-    const invalidTop = topIds.some((id) => byId.get(id)?.cat !== 'Top');
+    const invalidTop = topIds.some((id) =>
+      !isBundleTopCategory(byId.get(id)?.cat || ''),
+    );
     if (invalidBottom || invalidTop)
       throw new BadRequestException(
         'Escolha três partes de baixo e três tops nas categorias corretas.',
@@ -292,13 +300,14 @@ export class ProductsService implements OnModuleInit {
       cat: row.cat,
       sub: row.sub,
       price: row.price,
+      promoPct: normalizePromoPct(row.promoPct),
       tag: row.tag,
       icon: row.icon,
       rating: row.rating,
       reviews: row.reviews,
       stock: row.stock,
       active: row.active,
-      sizes: row.sizes,
+      sizes: sortProductSizes(row.sizes),
       material: row.material,
       pair: row.pairId || 0,
       bundlePosition: row.bundlePosition || 0,
@@ -308,10 +317,12 @@ export class ProductsService implements OnModuleInit {
         .map((color) => ({
           n: color.name,
           h: color.hex,
-          sizes: Object.entries(color.sizeStock || {}).map(([size, q]) => ({
-            size,
-            q: Math.max(0, Number(q) || 0),
-          })),
+          sizes: sortSizeStockEntries(
+            Object.entries(color.sizeStock || {}).map(([size, q]) => ({
+              size,
+              q: Math.max(0, Number(q) || 0),
+            })),
+          ),
         })),
       desc: row.desc,
       image: this.sortedImages(row)[0]?.url || row.image,
@@ -332,13 +343,14 @@ export class ProductsService implements OnModuleInit {
       cat: data.cat,
       sub: data.sub,
       price: data.price,
+      promoPct: normalizePromoPct(data.promoPct),
       tag: data.tag,
       icon: data.icon,
       rating: data.rating,
       reviews: data.reviews,
       stock: data.stock,
       active: data.active,
-      sizes: data.sizes,
+      sizes: sortProductSizes(data.sizes),
       material: data.material,
       pairId: data.pair || null,
       bundlePosition: data.bundlePosition || null,
@@ -358,8 +370,8 @@ export class ProductsService implements OnModuleInit {
         hex: color.h,
         position,
         sizeStock: Object.fromEntries(
-          (color.sizes || []).map((item) => [
-            String(item.size).trim().toUpperCase(),
+          sortSizeStockEntries(color.sizes || []).map((item) => [
+            normalizeProductSize(item.size),
             Math.max(0, Number(item.q) || 0),
           ]),
         ),
@@ -425,4 +437,59 @@ export class ProductsService implements OnModuleInit {
       { image: primary?.url || null },
     );
   }
+}
+
+function normalizedCategory(category: string) {
+  return category.trim().toLocaleLowerCase('pt-BR');
+}
+
+function isBundleBottomCategory(category: string) {
+  return ['parte de baixo', 'shorts/calça', 'shorts/calca'].includes(
+    normalizedCategory(category),
+  );
+}
+
+function isBundleTopCategory(category: string) {
+  return ['top', 'blusas/top', 'blusa/top'].includes(
+    normalizedCategory(category),
+  );
+}
+
+const productSizeOrder = ['P', 'M', 'G'];
+const productSizeRank = new Map(
+  productSizeOrder.map((size, index) => [size, index]),
+);
+
+function normalizeProductSize(size: string) {
+  return String(size).trim().toUpperCase();
+}
+
+function sortProductSizes(sizes: string[] = []) {
+  return Array.from(
+    new Set(sizes.map(normalizeProductSize).filter(Boolean)),
+  ).sort(compareProductSizes);
+}
+
+function sortSizeStockEntries<T extends { size: string }>(sizes: T[]) {
+  return [...sizes].sort((first, second) =>
+    compareProductSizes(first.size, second.size),
+  );
+}
+
+function compareProductSizes(first: string, second: string) {
+  const firstSize = normalizeProductSize(first);
+  const secondSize = normalizeProductSize(second);
+  const firstRank = productSizeRank.get(firstSize);
+  const secondRank = productSizeRank.get(secondSize);
+
+  if (firstRank !== undefined && secondRank !== undefined) {
+    return firstRank - secondRank;
+  }
+  if (firstRank !== undefined) return -1;
+  if (secondRank !== undefined) return 1;
+  return firstSize.localeCompare(secondSize, 'pt-BR');
+}
+
+function normalizePromoPct(value: unknown) {
+  return Math.min(90, Math.max(0, Math.round(Number(value) || 0)));
 }

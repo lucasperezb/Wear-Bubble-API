@@ -93,14 +93,15 @@ export class OrdersService {
         throw new BadRequestException(
           `Estoque insuficiente de ${product.name} na cor ${selectedColor?.n || color}, tamanho ${size}.`,
         );
-      const lineTotal = product.price * qty;
+      const unitPrice = productPrice(product.price, product.promoPct);
+      const lineTotal = unitPrice * qty;
       subtotal += lineTotal;
       bundleLines.push({
         bundle: String(item.bundle || '').trim(),
         productId: product.id,
         category: product.cat,
         quantity: qty,
-        unitPrice: product.price,
+        unitPrice,
       });
       lines.push({
         id: 0,
@@ -109,7 +110,7 @@ export class OrdersService {
         size,
         color: selectedColor?.n || color,
         qty,
-        price: product.price,
+        price: unitPrice,
       });
     }
     subtotal -=
@@ -379,10 +380,31 @@ export function calculateBundleSubtotal(lines: BundleLine[]) {
     if (grouped.length !== 2 || grouped[0].productId === grouped[1].productId) {
       return subtotal;
     }
-    const bottom = grouped.find((line) => line.category === 'Parte de baixo');
-    const top = grouped.find((line) => line.category === 'Top');
+    const bottom = grouped.find((line) => isBundleBottomCategory(line.category));
+    const top = grouped.find((line) => isBundleTopCategory(line.category));
     if (!bottom || !top) return subtotal;
     const matchedQuantity = Math.min(bottom.quantity, top.quantity);
     return subtotal + (bottom.unitPrice + top.unitPrice) * matchedQuantity;
   }, 0);
+}
+
+function normalizedCategory(category: string) {
+  return category.trim().toLocaleLowerCase('pt-BR');
+}
+
+function isBundleBottomCategory(category: string) {
+  return ['parte de baixo', 'shorts/calça', 'shorts/calca'].includes(
+    normalizedCategory(category),
+  );
+}
+
+function isBundleTopCategory(category: string) {
+  return ['top', 'blusas/top', 'blusa/top'].includes(
+    normalizedCategory(category),
+  );
+}
+
+function productPrice(price: number, promoPct = 0) {
+  const discount = Math.min(90, Math.max(0, Math.round(Number(promoPct) || 0)));
+  return Math.round((Number(price) || 0) * (1 - discount / 100) * 100) / 100;
 }

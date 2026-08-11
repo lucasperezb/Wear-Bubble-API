@@ -1,6 +1,5 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
   ArrayMinSize,
   ArrayUnique,
   IsArray,
@@ -10,8 +9,7 @@ import {
 
 export class BundleSelectionDto {
   @IsArray()
-  @ArrayMinSize(3)
-  @ArrayMaxSize(3)
+  @ArrayMinSize(1)
   @ArrayUnique()
   @Type(() => Number)
   @IsInt({ each: true })
@@ -19,8 +17,7 @@ export class BundleSelectionDto {
   bottomIds: number[];
 
   @IsArray()
-  @ArrayMinSize(3)
-  @ArrayMaxSize(3)
+  @ArrayMinSize(1)
   @ArrayUnique()
   @Type(() => Number)
   @IsInt({ each: true })
