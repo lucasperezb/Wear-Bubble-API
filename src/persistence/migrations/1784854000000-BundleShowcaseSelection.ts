@@ -8,13 +8,13 @@ export class BundleShowcaseSelection1784854000000 implements MigrationInterface 
       ALTER TABLE products
         ADD COLUMN bundle_position smallint,
         ADD CONSTRAINT ck_products_bundle_position
-          CHECK (bundle_position IS NULL OR bundle_position BETWEEN 1 AND 3)
+          CHECK (bundle_position IS NULL OR bundle_position >= 1)
     `);
     await queryRunner.query(`
       WITH ranked AS (
         SELECT id, ROW_NUMBER() OVER (PARTITION BY cat ORDER BY id) AS position
         FROM products
-        WHERE active = true AND cat IN ('Top', 'Parte de baixo')
+        WHERE active = true AND cat IN ('Top', 'Parte de baixo', 'Blusas/Top', 'Shorts/Calça')
       )
       UPDATE products product
       SET bundle_position = ranked.position

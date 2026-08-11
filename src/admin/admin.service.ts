@@ -68,6 +68,7 @@ export class AdminService {
         cat: row.cat,
         sub: row.sub,
         price: row.price,
+        promoPct: row.promoPct || 0,
         tag: row.tag,
         icon: row.icon,
         rating: row.rating,

@@ -68,6 +68,13 @@ export class CreateProductDto {
   price?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  promoPct?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(100)
   tag?: string;
