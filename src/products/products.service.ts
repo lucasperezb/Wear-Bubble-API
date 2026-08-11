@@ -38,7 +38,11 @@ export class ProductsService implements OnModuleInit {
   }
 
   async listActive() {
-    return (await this.products.find({ order: { id: 'ASC' } }))
+    return (
+      await this.products.find({
+        order: { catalogPosition: 'ASC', id: 'ASC' },
+      })
+    )
       .filter((product) => product.active)
       .map((product) => this.toRecord(product));
   }
@@ -48,6 +52,9 @@ export class ProductsService implements OnModuleInit {
     const ids = existing.map((product) => product.id);
     const colors = Array.isArray(dto.colors) ? dto.colors : [];
     const variantStock = this.variantStock(colors);
+    const catalogPosition = existing.length
+      ? Math.max(...existing.map((product) => product.catalogPosition || 0)) + 1
+      : 0;
     const wanted = Number(dto.id);
     const id =
       wanted && !ids.includes(wanted)
@@ -66,10 +73,13 @@ export class ProductsService implements OnModuleInit {
       reviews: Number(dto.reviews) || 0,
       stock: variantStock ?? (Number(dto.stock) || 0),
       active: dto.active !== false,
-      sizes: sortProductSizes(Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G']),
+      sizes: sortProductSizes(
+        Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G'],
+      ),
       material: dto.material || '',
       pair: Number(dto.pair) || 0,
       bundlePosition: 0,
+      catalogPosition,
       sports: Array.isArray(dto.sports) ? dto.sports : [],
       colors,
       desc: dto.desc || '',
@@ -122,9 +132,13 @@ export class ProductsService implements OnModuleInit {
   async saveBundleSelection(bottomIds: number[], topIds: number[]) {
     const ids = [...bottomIds, ...topIds];
     if (!bottomIds.length || !topIds.length)
-      throw new BadRequestException('Selecione pelo menos um produto em cada coluna.');
+      throw new BadRequestException(
+        'Selecione pelo menos um produto em cada coluna.',
+      );
     if (new Set(ids).size !== ids.length)
-      throw new BadRequestException('Selecione produtos diferentes em cada posição.');
+      throw new BadRequestException(
+        'Selecione produtos diferentes em cada posição.',
+      );
     const selected = await this.products.find({ where: { id: In(ids) } });
     if (selected.length !== ids.length)
       throw new BadRequestException('Um dos produtos selecionados não existe.');
@@ -132,8 +146,8 @@ export class ProductsService implements OnModuleInit {
     const invalidBottom = bottomIds.some(
       (id) => !isBundleBottomCategory(byId.get(id)?.cat || ''),
     );
-    const invalidTop = topIds.some((id) =>
-      !isBundleTopCategory(byId.get(id)?.cat || ''),
+    const invalidTop = topIds.some(
+      (id) => !isBundleTopCategory(byId.get(id)?.cat || ''),
     );
     if (invalidBottom || invalidTop)
       throw new BadRequestException(
@@ -162,6 +176,27 @@ export class ProductsService implements OnModuleInit {
           { id },
           { bundlePosition: position + 1 },
         );
+    });
+    return this.listActive();
+  }
+
+  async saveCatalogOrder(productIds: number[]) {
+    const existing = await this.products.find({
+      order: { catalogPosition: 'ASC', id: 'ASC' },
+    });
+    const existingIds = new Set(existing.map((product) => product.id));
+    if (
+      productIds.length !== existing.length ||
+      new Set(productIds).size !== existing.length ||
+      productIds.some((id) => !existingIds.has(id))
+    )
+      throw new BadRequestException(
+        'A ordem precisa conter todos os produtos cadastrados.',
+      );
+
+    await this.products.manager.transaction(async (manager) => {
+      for (const [catalogPosition, id] of productIds.entries())
+        await manager.update(ProductEntity, { id }, { catalogPosition });
     });
     return this.listActive();
   }
@@ -311,6 +346,7 @@ export class ProductsService implements OnModuleInit {
       material: row.material,
       pair: row.pairId || 0,
       bundlePosition: row.bundlePosition || 0,
+      catalogPosition: row.catalogPosition || 0,
       sports: row.sports,
       colors: (row.colors || [])
         .sort((a, b) => a.position - b.position)
@@ -354,6 +390,7 @@ export class ProductsService implements OnModuleInit {
       material: data.material,
       pairId: data.pair || null,
       bundlePosition: data.bundlePosition || null,
+      catalogPosition: data.catalogPosition || 0,
       sports: data.sports,
       colors: this.createColors(data.id, data.colors),
       desc: data.desc,

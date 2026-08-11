@@ -21,6 +21,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
 import { ReorderProductImagesDto } from './dto/reorder-product-images.dto';
 import { BundleSelectionDto } from './dto/bundle-selection.dto';
+import { ReorderProductsDto } from './dto/reorder-products.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -47,6 +48,14 @@ export class ProductsController {
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
   saveBundleSelection(@Body() dto: BundleSelectionDto) {
     return this.products.saveBundleSelection(dto.bottomIds, dto.topIds);
+  }
+
+  @Patch('catalog-order')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  saveCatalogOrder(@Body() dto: ReorderProductsDto) {
+    return this.products.saveCatalogOrder(dto.productIds);
   }
 
   @Patch(':id')

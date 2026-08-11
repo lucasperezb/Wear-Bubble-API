@@ -20,6 +20,8 @@ import { ReturnRequestEntity } from '../returns/entities/return-request.entity';
 import { ReturnItemEntity } from '../returns/entities/return-item.entity';
 import { ReturnEventEntity } from '../returns/entities/return-event.entity';
 import { StoreCreditEntity } from '../returns/entities/store-credit.entity';
+import { HeroConfigEntity } from '../hero/entities/hero-config.entity';
+import { HeroSlideEntity } from '../hero/entities/hero-slide.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
@@ -61,6 +63,8 @@ const ormconfig: DataSourceOptions = {
     ReturnItemEntity,
     ReturnEventEntity,
     StoreCreditEntity,
+    HeroConfigEntity,
+    HeroSlideEntity,
   ],
   migrations: [`${__dirname}/migrations/*{.ts,.js}`],
   migrationsRun: booleanEnv(process.env.DB_MIGRATIONS_RUN, false),

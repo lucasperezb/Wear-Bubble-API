@@ -20,6 +20,7 @@ describe('ProductsService bundle selection', () => {
       material: '',
       pairId: null,
       bundlePosition: null,
+      catalogPosition: id - 1,
       sports: [],
       colors: [],
       desc: '',
@@ -40,8 +41,7 @@ describe('ProductsService bundle selection', () => {
       find: jest.fn().mockResolvedValue(rows),
       manager: {
         transaction: jest.fn(
-          async (callback: (value: typeof manager) => unknown) =>
-            callback(manager),
+          (callback: (value: typeof manager) => unknown) => callback(manager),
         ),
       },
     };
@@ -141,6 +141,40 @@ describe('ProductsService bundle selection', () => {
     await expect(
       service.saveBundleSelection([1, 2, 3], [4, 5, 6]),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(products.manager.transaction).not.toHaveBeenCalled();
+  });
+
+  it('salva a ordem completa da vitrine', async () => {
+    const rows = [
+      makeProduct(1, 'Blusas/Top'),
+      makeProduct(2, 'Shorts/Calça'),
+      makeProduct(3, 'Blusas/Top'),
+    ];
+    const { service, manager } = setup(rows);
+
+    await service.saveCatalogOrder([3, 1, 2]);
+
+    expect(manager.update).toHaveBeenNthCalledWith(
+      1,
+      ProductEntity,
+      { id: 3 },
+      { catalogPosition: 0 },
+    );
+    expect(manager.update).toHaveBeenNthCalledWith(
+      3,
+      ProductEntity,
+      { id: 2 },
+      { catalogPosition: 2 },
+    );
+  });
+
+  it('recusa uma ordem incompleta da vitrine', async () => {
+    const rows = [makeProduct(1, 'Blusas/Top'), makeProduct(2, 'Shorts/Calça')];
+    const { service, products } = setup(rows);
+
+    await expect(service.saveCatalogOrder([1])).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
     expect(products.manager.transaction).not.toHaveBeenCalled();
   });
 });

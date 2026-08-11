@@ -15,6 +15,7 @@ export type ProductRecord = {
   material: string;
   pair: number;
   bundlePosition?: number;
+  catalogPosition?: number;
   sports: string[];
   colors: Array<{
     n: string;
