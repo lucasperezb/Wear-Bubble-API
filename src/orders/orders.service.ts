@@ -128,7 +128,7 @@ export class OrdersService {
         throw new BadRequestException(
           `O cupom exige uma compra mínima de R$ ${coupon.minSubtotal}.`,
         );
-      couponPct = Math.min(90, Math.max(0, Number(coupon.pct) || 0));
+      couponPct = Math.min(99, Math.max(0, Number(coupon.pct) || 0));
       subtotal *= 1 - couponPct / 100;
     }
     const productTotal =

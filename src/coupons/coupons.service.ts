@@ -67,7 +67,7 @@ export class CouponsService implements OnModuleInit {
       throw new ConflictException('Cupom já existe.');
     const data: CouponRecord = {
       code,
-      pct: Math.min(90, Math.max(0, Number(dto?.pct) || 0)),
+      pct: this.normalizePercentage(dto?.pct),
       active: dto?.active !== false,
       expiresAt: dto?.expiresAt ? Number(dto.expiresAt) : null,
       maxUses: dto?.maxUses ? Number(dto.maxUses) : null,
@@ -109,8 +109,13 @@ export class CouponsService implements OnModuleInit {
       'minSubtotal',
       'assignedTo',
     ] as const;
-    for (const key of allowed)
-      if (key in dto) (row as any)[key] = (dto as any)[key];
+    for (const key of allowed) {
+      if (!(key in dto)) continue;
+      (row as any)[key] =
+        key === 'pct'
+          ? this.normalizePercentage(dto.pct)
+          : (dto as any)[key];
+    }
     if ('expiresAt' in dto)
       row.expiresAt = dto.expiresAt ? new Date(Number(dto.expiresAt)) : null;
     await this.coupons.save(row);
@@ -192,5 +197,9 @@ export class CouponsService implements OnModuleInit {
       uses: row.uses,
       createdAt: row.createdAt.getTime(),
     };
+  }
+
+  private normalizePercentage(value?: number) {
+    return Math.min(99, Math.max(0, Number(value) || 0));
   }
 }
