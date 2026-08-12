@@ -131,10 +131,14 @@ export class OrdersService {
       couponPct = Math.min(99, Math.max(0, Number(coupon.pct) || 0));
       subtotal *= 1 - couponPct / 100;
     }
-    const productTotal =
+    const discountedProductTotal =
       Math.round(
         subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
       ) / 100;
+    const productTotal =
+      method === 'Pix'
+        ? enforceMinimumCharge(discountedProductTotal)
+        : discountedProductTotal;
     const creditCode =
       String(dto?.creditCode || '')
         .trim()
@@ -150,10 +154,22 @@ export class OrdersService {
     const reservedCredit = creditCode
       ? await this.credits.reserve(uid, creditCode, beforeCredit)
       : null;
-    const total = Math.max(
+    let total = Math.max(
       0,
       Math.round((beforeCredit - (reservedCredit?.amount || 0)) * 100) / 100,
     );
+    if (method === 'Pix' && total > 0 && total < MINIMUM_CHARGE) {
+      const creditToRelease = Math.min(
+        reservedCredit?.amount || 0,
+        MINIMUM_CHARGE - total,
+      );
+      if (reservedCredit && creditToRelease > 0) {
+        await this.credits.release(reservedCredit.code, creditToRelease);
+        reservedCredit.amount =
+          Math.round((reservedCredit.amount - creditToRelease) * 100) / 100;
+      }
+      total = MINIMUM_CHARGE;
+    }
     const order: OrderRecord = {
       id: randomUUID(),
       customerId: uid,
@@ -407,4 +423,11 @@ function isBundleTopCategory(category: string) {
 function productPrice(price: number, promoPct = 0) {
   const discount = Math.min(90, Math.max(0, Math.round(Number(promoPct) || 0)));
   return Math.round((Number(price) || 0) * (1 - discount / 100) * 100) / 100;
+}
+
+export const MINIMUM_CHARGE = 0.5;
+
+export function enforceMinimumCharge(total: number) {
+  const rounded = Math.max(0, Math.round((Number(total) || 0) * 100) / 100);
+  return rounded > 0 && rounded < MINIMUM_CHARGE ? MINIMUM_CHARGE : rounded;
 }
