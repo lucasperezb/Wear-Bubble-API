@@ -30,6 +30,7 @@ export class CouponsService implements OnModuleInit {
         this.coupons.create({
           code: data.code,
           pct: data.pct,
+          minimumCharge: data.minimumCharge,
           active: data.active,
           expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
           maxUses: data.maxUses,
@@ -48,6 +49,7 @@ export class CouponsService implements OnModuleInit {
     return {
       code: coupon.code,
       pct: coupon.pct,
+      minimumCharge: coupon.minimumCharge,
       minSubtotal: coupon.minSubtotal || 0,
     };
   }
@@ -67,7 +69,8 @@ export class CouponsService implements OnModuleInit {
       throw new ConflictException('Cupom já existe.');
     const data: CouponRecord = {
       code,
-      pct: this.normalizePercentage(dto?.pct),
+      pct: dto?.minimumCharge ? 0 : this.normalizePercentage(dto?.pct),
+      minimumCharge: dto?.minimumCharge === true,
       active: dto?.active !== false,
       expiresAt: dto?.expiresAt ? Number(dto.expiresAt) : null,
       maxUses: dto?.maxUses ? Number(dto.maxUses) : null,
@@ -83,6 +86,7 @@ export class CouponsService implements OnModuleInit {
       this.coupons.create({
         code,
         pct: data.pct,
+        minimumCharge: data.minimumCharge,
         active: data.active,
         expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
         maxUses: data.maxUses,
@@ -103,6 +107,7 @@ export class CouponsService implements OnModuleInit {
     if (!row) throw new NotFoundException('Cupom não encontrado.');
     const allowed = [
       'pct',
+      'minimumCharge',
       'active',
       'maxUses',
       'maxUsesPerCustomer',
@@ -112,10 +117,9 @@ export class CouponsService implements OnModuleInit {
     for (const key of allowed) {
       if (!(key in dto)) continue;
       (row as any)[key] =
-        key === 'pct'
-          ? this.normalizePercentage(dto.pct)
-          : (dto as any)[key];
+        key === 'pct' ? this.normalizePercentage(dto.pct) : (dto as any)[key];
     }
+    if (row.minimumCharge) row.pct = 0;
     if ('expiresAt' in dto)
       row.expiresAt = dto.expiresAt ? new Date(Number(dto.expiresAt)) : null;
     await this.coupons.save(row);
@@ -188,6 +192,7 @@ export class CouponsService implements OnModuleInit {
     return {
       code: row.code,
       pct: row.pct,
+      minimumCharge: row.minimumCharge,
       active: row.active,
       expiresAt: row.expiresAt?.getTime() || null,
       maxUses: row.maxUses,

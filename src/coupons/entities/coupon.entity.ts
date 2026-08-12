@@ -18,6 +18,9 @@ export class CouponEntity extends TimestampedEntity {
   })
   pct: number;
 
+  @Column({ name: 'minimum_charge', type: 'boolean', default: false })
+  minimumCharge: boolean;
+
   @Column({ type: 'boolean', default: true })
   active: boolean;
 

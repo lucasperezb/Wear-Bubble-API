@@ -24,6 +24,10 @@ export class CreateCouponDto {
 
   @IsOptional()
   @IsBoolean()
+  minimumCharge?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   active?: boolean;
 
   @IsOptional()

@@ -122,29 +122,41 @@ export class OrdersService {
         .toUpperCase() || null;
     let couponPct = 0;
     let coupon: CouponRecord | null = null;
+    let minimumChargeCoupon = false;
     if (couponCode) {
       coupon = await this.coupons.getActive(couponCode, uid, delivery?.email);
       if (coupon.minSubtotal && subtotal < coupon.minSubtotal)
         throw new BadRequestException(
           `O cupom exige uma compra mínima de R$ ${coupon.minSubtotal}.`,
         );
-      couponPct = Math.min(99, Math.max(0, Number(coupon.pct) || 0));
-      subtotal *= 1 - couponPct / 100;
+      minimumChargeCoupon = coupon.minimumCharge === true;
+      const adjusted = applyCouponToSubtotal(
+        subtotal,
+        coupon.pct,
+        minimumChargeCoupon,
+      );
+      subtotal = adjusted.subtotal;
+      couponPct = adjusted.couponPct;
     }
     const discountedProductTotal =
       Math.round(
-        subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
+        subtotal *
+          (method === 'Pix' && !minimumChargeCoupon
+            ? 1 - this.config.pixDiscount
+            : 1) *
+          100,
       ) / 100;
     const productTotal =
       method === 'Pix'
         ? enforceMinimumCharge(discountedProductTotal)
         : discountedProductTotal;
-    const creditCode =
-      String(dto?.creditCode || '')
-        .trim()
-        .toUpperCase() || null;
+    const creditCode = minimumChargeCoupon
+      ? null
+      : String(dto?.creditCode || '')
+          .trim()
+          .toUpperCase() || null;
     const shippingPrice =
-      this.config.freeShippingEnabled || creditCode
+      minimumChargeCoupon || this.config.freeShippingEnabled || creditCode
         ? 0
         : productTotal >= 299
           ? 0
@@ -396,7 +408,9 @@ export function calculateBundleSubtotal(lines: BundleLine[]) {
     if (grouped.length !== 2 || grouped[0].productId === grouped[1].productId) {
       return subtotal;
     }
-    const bottom = grouped.find((line) => isBundleBottomCategory(line.category));
+    const bottom = grouped.find((line) =>
+      isBundleBottomCategory(line.category),
+    );
     const top = grouped.find((line) => isBundleTopCategory(line.category));
     if (!bottom || !top) return subtotal;
     const matchedQuantity = Math.min(bottom.quantity, top.quantity);
@@ -426,6 +440,19 @@ function productPrice(price: number, promoPct = 0) {
 }
 
 export const MINIMUM_CHARGE = 0.5;
+export const SPECIAL_COUPON_TOTAL = 5;
+
+export function applyCouponToSubtotal(
+  subtotal: number,
+  percentage: number,
+  minimumCharge: boolean,
+) {
+  if (minimumCharge) {
+    return { subtotal: SPECIAL_COUPON_TOTAL, couponPct: 0 };
+  }
+  const couponPct = Math.min(99, Math.max(0, Number(percentage) || 0));
+  return { subtotal: subtotal * (1 - couponPct / 100), couponPct };
+}
 
 export function enforceMinimumCharge(total: number) {
   const rounded = Math.max(0, Math.round((Number(total) || 0) * 100) / 100);

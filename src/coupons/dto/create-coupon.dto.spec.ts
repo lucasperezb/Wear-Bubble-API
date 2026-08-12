@@ -14,7 +14,7 @@ describe('CreateCouponDto', () => {
     expect(validatePct(99)).toHaveLength(0);
   });
 
-  it('rejeita cupom acima de 99% de desconto', () => {
+  it('rejeita cupom comum acima de 99%', () => {
     expect(validatePct(100)).not.toHaveLength(0);
   });
 });

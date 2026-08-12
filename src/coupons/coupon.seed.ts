@@ -4,6 +4,7 @@ export const seedCoupons: CouponRecord[] = [
   {
     code: 'BUBBLE10',
     pct: 10,
+    minimumCharge: false,
     active: true,
     expiresAt: null,
     maxUses: null,

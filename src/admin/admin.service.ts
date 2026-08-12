@@ -180,6 +180,7 @@ export class AdminService {
       coupons: coupons.map((coupon) => ({
         code: coupon.code,
         pct: coupon.pct,
+        minimumCharge: coupon.minimumCharge,
         active: coupon.active,
         expiresAt: coupon.expiresAt?.getTime() || null,
         maxUses: coupon.maxUses,
