@@ -16,6 +16,7 @@ import { ManagerGuard } from '../auth/guards/manager.guard';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
+import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -51,5 +52,16 @@ export class OrdersController {
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
   ship(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ShipOrderDto) {
     return this.orders.ship(id, dto);
+  }
+
+  @Patch(':id/address')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  updateAddress(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrderAddressDto,
+  ) {
+    return this.orders.updateAddress(id, dto);
   }
 }

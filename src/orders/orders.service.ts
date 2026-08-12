@@ -15,6 +15,7 @@ import { CreditsService } from '../credits/credits.service';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
+import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
 import { OrderCounterEntity } from './entities/order-counter.entity';
 import { OrderItemEntity } from './entities/order-item.entity';
 import { OrderEntity } from './entities/order.entity';
@@ -311,6 +312,20 @@ export class OrdersService {
       await this.email.sendShippingUpdate(order);
     }
     return order;
+  }
+
+  async updateAddress(id: string, dto: UpdateOrderAddressDto) {
+    const row = await this.orders.findOneBy({ id });
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
+    row.shippingCep = String(dto.cep).trim();
+    row.shippingStreet = String(dto.street).trim();
+    row.shippingNeighborhood = String(dto.neighborhood).trim();
+    row.shippingNumber = String(dto.number).trim();
+    row.shippingReference = String(dto.reference || '').trim();
+    row.shippingCity = String(dto.city).trim();
+    row.shippingState = String(dto.state).trim().toUpperCase();
+    await this.orders.save(row);
+    return this.toRecord(row);
   }
 
   findEntity(id: string) {
