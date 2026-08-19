@@ -14,6 +14,12 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductColorEntity } from './entities/product-color.entity';
 import { ProductEntity } from './entities/product.entity';
 import { ProductImageEntity } from './entities/product-image.entity';
+import { ProductShowcaseEntity } from './entities/product-showcase.entity';
+import {
+  isShowcaseKey,
+  SHOWCASE_KEYS,
+  type ShowcaseKey,
+} from './showcase.constants';
 import { ProductImageStorageService } from './product-image-storage.service';
 
 @Injectable()
@@ -25,6 +31,8 @@ export class ProductsService implements OnModuleInit {
     private readonly colors: Repository<ProductColorEntity>,
     @InjectRepository(ProductImageEntity)
     private readonly images: Repository<ProductImageEntity>,
+    @InjectRepository(ProductShowcaseEntity)
+    private readonly showcases: Repository<ProductShowcaseEntity>,
     private readonly imageStorage: ProductImageStorageService,
   ) {}
 
@@ -45,6 +53,88 @@ export class ProductsService implements OnModuleInit {
     )
       .filter((product) => product.active)
       .map((product) => this.toRecord(product));
+  }
+
+  async listCollections() {
+    const rows = await this.products.find({
+      select: { collectionName: true },
+      where: { active: true },
+    });
+    return Array.from(
+      new Set(rows.map((row) => row.collectionName.trim()).filter(Boolean)),
+    ).sort((first, second) => first.localeCompare(second, 'pt-BR'));
+  }
+
+  async listShowcases() {
+    const active = await this.listActive();
+    const activeById = new Map(active.map((product) => [product.id, product]));
+    const saved = await this.showcases.find({
+      order: { pageKey: 'ASC', position: 'ASC' },
+    });
+    return Object.fromEntries(
+      SHOWCASE_KEYS.map((key) => {
+        const selected = saved
+          .filter((row) => row.pageKey === key)
+          .map((row) => activeById.get(row.productId))
+          .filter((product): product is ProductRecord => Boolean(product));
+        return [
+          key,
+          selected.length ? selected : this.defaultShowcase(key, active),
+        ];
+      }),
+    );
+  }
+
+  async saveShowcase(pageKey: string, productIds: number[]) {
+    if (!isShowcaseKey(pageKey))
+      throw new BadRequestException('Página de vitrine inválida.');
+    const expectedSize = pageKey === 'hero' ? 1 : 4;
+    if (
+      productIds.length !== expectedSize ||
+      new Set(productIds).size !== expectedSize
+    )
+      throw new BadRequestException(
+        pageKey === 'hero'
+          ? 'Selecione uma peça para o destaque principal.'
+          : 'Selecione quatro produtos diferentes.',
+      );
+    const selected = await this.products.find({
+      where: { id: In(productIds) },
+    });
+    if (selected.length !== expectedSize)
+      throw new BadRequestException('Um dos produtos selecionados não existe.');
+    if (selected.some((product) => !product.active || product.stock <= 0))
+      throw new BadRequestException(
+        'As peças devem estar ativas e com estoque.',
+      );
+
+    await this.products.manager.transaction(async (manager) => {
+      await manager.delete(ProductShowcaseEntity, { pageKey });
+      await manager.save(
+        ProductShowcaseEntity,
+        productIds.map((productId, index) => ({
+          pageKey,
+          position: index + 1,
+          productId,
+        })),
+      );
+    });
+    return this.listShowcases();
+  }
+
+  private defaultShowcase(pageKey: ShowcaseKey, products: ProductRecord[]) {
+    const matches = products.filter((product) => {
+      const category = normalizedCategory(product.cat);
+      if (pageKey === 'tops') return isBundleTopCategory(category);
+      if (pageKey === 'bottoms') return isBundleBottomCategory(category);
+      if (pageKey === 'sets')
+        return ['conjunto', 'combo', 'look'].includes(category);
+      return true;
+    });
+    return [
+      ...matches,
+      ...products.filter((product) => !matches.includes(product)),
+    ].slice(0, pageKey === 'hero' ? 1 : 4);
   }
 
   async create(dto: CreateProductDto) {
@@ -68,6 +158,7 @@ export class ProductsService implements OnModuleInit {
       price: Number(dto.price) || 0,
       promoPct: normalizePromoPct(dto.promoPct),
       tag: dto.tag || '',
+      collectionName: dto.collectionName?.trim() || '',
       icon: dto.icon || 'top',
       rating: Number(dto.rating) || 5,
       reviews: Number(dto.reviews) || 0,
@@ -102,6 +193,7 @@ export class ProductsService implements OnModuleInit {
       'promoPct',
       'stock',
       'tag',
+      'collectionName',
       'sports',
       'material',
       'active',
@@ -337,6 +429,7 @@ export class ProductsService implements OnModuleInit {
       price: row.price,
       promoPct: normalizePromoPct(row.promoPct),
       tag: row.tag,
+      collectionName: row.collectionName,
       icon: row.icon,
       rating: row.rating,
       reviews: row.reviews,
@@ -381,6 +474,7 @@ export class ProductsService implements OnModuleInit {
       price: data.price,
       promoPct: normalizePromoPct(data.promoPct),
       tag: data.tag,
+      collectionName: data.collectionName || '',
       icon: data.icon,
       rating: data.rating,
       reviews: data.reviews,

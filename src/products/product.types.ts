@@ -6,6 +6,7 @@ export type ProductRecord = {
   price: number;
   promoPct: number;
   tag: string;
+  collectionName?: string;
   icon: string;
   rating: number;
   reviews: number;

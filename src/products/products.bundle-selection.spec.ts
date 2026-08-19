@@ -40,13 +40,14 @@ describe('ProductsService bundle selection', () => {
     const products = {
       find: jest.fn().mockResolvedValue(rows),
       manager: {
-        transaction: jest.fn(
-          (callback: (value: typeof manager) => unknown) => callback(manager),
+        transaction: jest.fn((callback: (value: typeof manager) => unknown) =>
+          callback(manager),
         ),
       },
     };
     const service = new ProductsService(
       products as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

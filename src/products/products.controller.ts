@@ -21,6 +21,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
 import { ReorderProductImagesDto } from './dto/reorder-product-images.dto';
 import { BundleSelectionDto } from './dto/bundle-selection.dto';
+import { ShowcaseSelectionDto } from './dto/showcase-selection.dto';
 import { ReorderProductsDto } from './dto/reorder-products.dto';
 import { ProductsService } from './products.service';
 
@@ -32,6 +33,27 @@ export class ProductsController {
   @Get()
   list() {
     return this.products.listActive();
+  }
+
+  @Get('collections')
+  listCollections() {
+    return this.products.listCollections();
+  }
+
+  @Get('showcases')
+  listShowcases() {
+    return this.products.listShowcases();
+  }
+
+  @Patch('showcases/:pageKey')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  saveShowcase(
+    @Param('pageKey') pageKey: string,
+    @Body() dto: ShowcaseSelectionDto,
+  ) {
+    return this.products.saveShowcase(pageKey, dto.productIds);
   }
 
   @Post()
