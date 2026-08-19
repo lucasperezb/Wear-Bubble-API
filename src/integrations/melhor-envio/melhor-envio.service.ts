@@ -168,7 +168,7 @@ export class MelhorEnvioService {
       )
       .map((option) => {
         const carrierPrice = Number(option.custom_price ?? option.price);
-        const price = this.config.freeShippingEnabled ? 0 : carrierPrice;
+        const price = carrierPrice;
         const deliveryTime = Number(
           option.custom_delivery_time ?? option.delivery_time,
         );

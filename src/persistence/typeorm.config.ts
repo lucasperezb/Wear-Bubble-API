@@ -15,6 +15,7 @@ import { OrderEntity } from '../orders/entities/order.entity';
 import { ProductColorEntity } from '../products/entities/product-color.entity';
 import { ProductEntity } from '../products/entities/product.entity';
 import { ProductImageEntity } from '../products/entities/product-image.entity';
+import { ProductShowcaseEntity } from '../products/entities/product-showcase.entity';
 import { MelhorEnvioCredentialEntity } from '../integrations/melhor-envio/entities/melhor-envio-credential.entity';
 import { ReturnRequestEntity } from '../returns/entities/return-request.entity';
 import { ReturnItemEntity } from '../returns/entities/return-item.entity';
@@ -50,6 +51,7 @@ const ormconfig: DataSourceOptions = {
     ProductEntity,
     ProductColorEntity,
     ProductImageEntity,
+    ProductShowcaseEntity,
     OrderEntity,
     OrderItemEntity,
     OrderCounterEntity,

@@ -43,6 +43,9 @@ export class ProductEntity extends TimestampedEntity {
   @Column({ type: 'varchar', length: 100, default: '' })
   tag: string;
 
+  @Column({ name: 'collection_name', type: 'varchar', length: 100, default: '' })
+  collectionName: string;
+
   @Column({ type: 'varchar', length: 80, default: '' })
   icon: string;
 

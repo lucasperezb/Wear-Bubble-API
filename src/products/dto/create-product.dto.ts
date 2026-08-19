@@ -81,6 +81,11 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  collectionName?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   icon?: string;
 

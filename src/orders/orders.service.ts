@@ -131,6 +131,9 @@ export class OrdersService {
       couponPct = Math.min(90, Math.max(0, Number(coupon.pct) || 0));
       subtotal *= 1 - couponPct / 100;
     }
+    // Preços vigentes, conjunto e cupom compõem a base. O desconto Pix é
+    // aplicado somente depois e não retira o frete grátis já conquistado.
+    const freeShippingSubtotal = subtotal;
     const productTotal =
       Math.round(
         subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
@@ -140,11 +143,9 @@ export class OrdersService {
         .trim()
         .toUpperCase() || null;
     const shippingPrice =
-      this.config.freeShippingEnabled || creditCode
+      freeShippingSubtotal >= this.config.freeShippingMinimum
         ? 0
-        : productTotal >= 299
-          ? 0
-          : Math.max(0, Number(shipping?.price) || 0);
+        : Math.max(0, Number(shipping?.price) || 0);
     const beforeCredit = Math.round((productTotal + shippingPrice) * 100) / 100;
     const orderNumber = await this.nextOrderNumber();
     const reservedCredit = creditCode
