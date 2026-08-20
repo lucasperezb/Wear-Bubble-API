@@ -106,6 +106,7 @@ export class AdminService {
             id: image.id,
             url: image.url,
             altText: image.altText,
+            colorName: image.colorName,
             position: image.position,
             isPrimary: image.isPrimary,
           })),

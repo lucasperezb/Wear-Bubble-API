@@ -36,6 +36,9 @@ export class ProductImageEntity extends TimestampedEntity {
   @Column({ name: 'alt_text', type: 'varchar', length: 180, default: '' })
   altText: string;
 
+  @Column({ name: 'color_name', type: 'varchar', length: 100, nullable: true })
+  colorName: string | null;
+
   @Column({ type: 'integer', default: 0 })
   position: number;
 

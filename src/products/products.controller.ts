@@ -19,6 +19,7 @@ import { ManagerGuard } from '../auth/guards/manager.guard';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
+import { UpdateProductImageMetadataDto } from './dto/update-product-image-metadata.dto';
 import { ReorderProductImagesDto } from './dto/reorder-product-images.dto';
 import { BundleSelectionDto } from './dto/bundle-selection.dto';
 import { ShowcaseSelectionDto } from './dto/showcase-selection.dto';
@@ -133,6 +134,17 @@ export class ProductsController {
     @Param('imageId') imageId: string,
   ) {
     return this.products.setPrimaryImage(id, imageId);
+  }
+
+  @Patch(':id/images/:imageId')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  updateImageMetadata(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('imageId') imageId: string,
+    @Body() dto: UpdateProductImageMetadataDto,
+  ) {
+    return this.products.updateImageMetadata(id, imageId, dto.colorName);
   }
 
   @Delete(':id/images/:imageId')

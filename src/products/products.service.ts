@@ -374,6 +374,24 @@ export class ProductsService implements OnModuleInit {
     return this.getRecord(productId);
   }
 
+  async updateImageMetadata(
+    productId: number,
+    imageId: string,
+    colorName?: string | null,
+  ) {
+    const product = await this.getProductOrThrow(productId);
+    const image = await this.getOwnedImage(productId, imageId);
+    const normalizedColor = colorName?.trim() || null;
+    if (
+      normalizedColor &&
+      !product.colors.some((color) => color.name === normalizedColor)
+    )
+      throw new BadRequestException('A cor selecionada não existe na peça.');
+    image.colorName = normalizedColor;
+    await this.images.save(image);
+    return this.getRecord(productId);
+  }
+
   async reorderImages(productId: number, imageIds: string[]) {
     await this.getProductOrThrow(productId);
     const current = await this.images.find({ where: { productId } });
@@ -459,6 +477,7 @@ export class ProductsService implements OnModuleInit {
         id: image.id,
         url: image.url,
         altText: image.altText,
+        colorName: image.colorName,
         position: image.position,
         isPrimary: image.isPrimary,
       })),

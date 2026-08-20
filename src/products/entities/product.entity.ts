@@ -16,6 +16,7 @@ import { ProductImageEntity } from './product-image.entity';
 @Entity({ name: 'products' })
 @Check('ck_products_stock', 'stock >= 0')
 @Check('ck_products_promo_pct', 'promo_pct BETWEEN 0 AND 90')
+@Check('ck_products_rating', 'rating IN (4.80, 4.90, 5.00)')
 export class ProductEntity extends TimestampedEntity {
   @PrimaryColumn({ type: 'integer' })
   id: number;
