@@ -8,10 +8,13 @@ import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { AppConfigService } from '../config/config.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { CouponEntity } from '../coupons/entities/coupon.entity';
 import { EmailService } from '../email/email.service';
+import { ProductEntity } from '../products/entities/product.entity';
 import { ProductsService } from '../products/products.service';
 import { CouponRecord } from '../coupons/coupon.types';
 import { CreditsService } from '../credits/credits.service';
+import { StoreCreditEntity } from '../returns/entities/store-credit.entity';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
@@ -294,6 +297,73 @@ export class OrdersService {
     return (await this.orders.find({ order: { orderedAt: 'DESC' } })).map(
       (row) => this.toRecord(row),
     );
+  }
+
+  async remove(id: string) {
+    return this.orders.manager.transaction(async (manager) => {
+      const orderRepository = manager.getRepository(OrderEntity);
+      const row = await orderRepository.findOne({
+        where: { id },
+        relations: { items: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!row) throw new NotFoundException('Pedido não encontrado.');
+
+      const creditRepository = manager.getRepository(StoreCreditEntity);
+      const generatedCredits = await creditRepository
+        .createQueryBuilder('credit')
+        .innerJoin('credit.returnRequest', 'request')
+        .where('request.orderId = :id', { id })
+        .getCount();
+      if (generatedCredits > 0) {
+        throw new BadRequestException(
+          'Este pedido gerou crédito de devolução e não pode ser excluído.',
+        );
+      }
+
+      if (row.status === 'paid') {
+        const productRepository = manager.getRepository(ProductEntity);
+        for (const item of row.items || []) {
+          if (item.productId) {
+            await productRepository.increment(
+              { id: item.productId },
+              'stock',
+              item.quantity,
+            );
+          }
+        }
+      }
+
+      if (row.couponCode) {
+        const couponRepository = manager.getRepository(CouponEntity);
+        const coupon = await couponRepository.findOne({
+          where: { code: row.couponCode },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (coupon) {
+          coupon.uses = Math.max(0, coupon.uses - 1);
+          await couponRepository.save(coupon);
+        }
+      }
+
+      if (row.storeCreditCode && row.storeCreditAmount > 0) {
+        const credit = await creditRepository.findOne({
+          where: { code: row.storeCreditCode },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (credit) {
+          credit.balance = Math.min(
+            credit.initialAmount,
+            Math.round((credit.balance + row.storeCreditAmount) * 100) / 100,
+          );
+          credit.status = credit.balance > 0 ? 'active' : 'used';
+          await creditRepository.save(credit);
+        }
+      }
+
+      await orderRepository.delete({ id });
+      return { id: row.id, number: row.number, deleted: true };
+    });
   }
 
   async ship(id: string, dto: ShipOrderDto) {

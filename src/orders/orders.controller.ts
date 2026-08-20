@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -44,6 +45,14 @@ export class OrdersController {
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
   list() {
     return this.orders.listAll();
+  }
+
+  @Delete(':id')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.orders.remove(id);
   }
 
   @Patch(':id/ship')
