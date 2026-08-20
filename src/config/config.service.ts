@@ -46,8 +46,8 @@ export class AppConfigService {
     return Number(this.config.get('BUNDLE_DISCOUNT')) || 0.05;
   }
 
-  get freeShippingEnabled() {
-    return this.config.get<string>('FREE_SHIPPING_ENABLED') !== 'false';
+  get freeShippingMinimum() {
+    return Math.max(0, Number(this.config.get('FREE_SHIPPING_MINIMUM')) || 199);
   }
 
   get supabaseUrl() {

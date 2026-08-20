@@ -171,7 +171,9 @@ O gerente opera a fila em `GET /api/returns`, informa manualmente o código e o
 rastreio da logística reversa, registra recebimento e inspeção e conclui por
 `POST /api/returns/:id/resolve`. Devoluções usam estorno parcial do Asaas quando
 há valor pago pelo gateway. Trocas geram um Crédito Wear Bubble nominal, com
-saldo parcial, validade de 180 dias e frete grátis na compra em que for usado.
+saldo parcial e validade de 180 dias. O frete grátis segue a regra geral da loja:
+valor dos produtos após promoções, conjuntos e cupons a partir de R$ 199. O
+desconto de pagamento via Pix não reduz essa base.
 Se o crédito cobrir todo o pedido, nenhuma cobrança é criada no Asaas.
 
 A geração automática da autorização de postagem pelo Melhor Envio ainda depende
