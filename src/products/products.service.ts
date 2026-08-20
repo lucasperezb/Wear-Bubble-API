@@ -15,7 +15,11 @@ import { ProductColorEntity } from './entities/product-color.entity';
 import { ProductEntity } from './entities/product.entity';
 import { ProductImageEntity } from './entities/product-image.entity';
 import { ProductShowcaseEntity } from './entities/product-showcase.entity';
-import { isShowcaseKey, SHOWCASE_KEYS, type ShowcaseKey } from './showcase.constants';
+import {
+  isShowcaseKey,
+  SHOWCASE_KEYS,
+  type ShowcaseKey,
+} from './showcase.constants';
 import { ProductImageStorageService } from './product-image-storage.service';
 
 @Injectable()
@@ -42,7 +46,11 @@ export class ProductsService implements OnModuleInit {
   }
 
   async listActive() {
-    return (await this.products.find({ order: { id: 'ASC' } }))
+    return (
+      await this.products.find({
+        order: { catalogPosition: 'ASC', id: 'ASC' },
+      })
+    )
       .filter((product) => product.active)
       .map((product) => this.toRecord(product));
   }
@@ -69,7 +77,10 @@ export class ProductsService implements OnModuleInit {
           .filter((row) => row.pageKey === key)
           .map((row) => activeById.get(row.productId))
           .filter((product): product is ProductRecord => Boolean(product));
-        return [key, selected.length ? selected : this.defaultShowcase(key, active)];
+        return [
+          key,
+          selected.length ? selected : this.defaultShowcase(key, active),
+        ];
       }),
     );
   }
@@ -78,17 +89,24 @@ export class ProductsService implements OnModuleInit {
     if (!isShowcaseKey(pageKey))
       throw new BadRequestException('Página de vitrine inválida.');
     const expectedSize = pageKey === 'hero' ? 1 : 4;
-    if (productIds.length !== expectedSize || new Set(productIds).size !== expectedSize)
+    if (
+      productIds.length !== expectedSize ||
+      new Set(productIds).size !== expectedSize
+    )
       throw new BadRequestException(
         pageKey === 'hero'
           ? 'Selecione uma peça para o destaque principal.'
           : 'Selecione quatro produtos diferentes.',
       );
-    const selected = await this.products.find({ where: { id: In(productIds) } });
+    const selected = await this.products.find({
+      where: { id: In(productIds) },
+    });
     if (selected.length !== expectedSize)
       throw new BadRequestException('Um dos produtos selecionados não existe.');
     if (selected.some((product) => !product.active || product.stock <= 0))
-      throw new BadRequestException('As peças devem estar ativas e com estoque.');
+      throw new BadRequestException(
+        'As peças devem estar ativas e com estoque.',
+      );
 
     await this.products.manager.transaction(async (manager) => {
       await manager.delete(ProductShowcaseEntity, { pageKey });
@@ -109,13 +127,14 @@ export class ProductsService implements OnModuleInit {
       const category = normalizedCategory(product.cat);
       if (pageKey === 'tops') return isBundleTopCategory(category);
       if (pageKey === 'bottoms') return isBundleBottomCategory(category);
-      if (pageKey === 'sets') return ['conjunto', 'combo', 'look'].includes(category);
+      if (pageKey === 'sets')
+        return ['conjunto', 'combo', 'look'].includes(category);
       return true;
     });
-    return [...matches, ...products.filter((product) => !matches.includes(product))].slice(
-      0,
-      pageKey === 'hero' ? 1 : 4,
-    );
+    return [
+      ...matches,
+      ...products.filter((product) => !matches.includes(product)),
+    ].slice(0, pageKey === 'hero' ? 1 : 4);
   }
 
   async create(dto: CreateProductDto) {
@@ -123,6 +142,9 @@ export class ProductsService implements OnModuleInit {
     const ids = existing.map((product) => product.id);
     const colors = Array.isArray(dto.colors) ? dto.colors : [];
     const variantStock = this.variantStock(colors);
+    const catalogPosition = existing.length
+      ? Math.max(...existing.map((product) => product.catalogPosition || 0)) + 1
+      : 0;
     const wanted = Number(dto.id);
     const id =
       wanted && !ids.includes(wanted)
@@ -142,10 +164,13 @@ export class ProductsService implements OnModuleInit {
       reviews: Number(dto.reviews) || 0,
       stock: variantStock ?? (Number(dto.stock) || 0),
       active: dto.active !== false,
-      sizes: sortProductSizes(Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G']),
+      sizes: sortProductSizes(
+        Array.isArray(dto.sizes) ? dto.sizes : ['P', 'M', 'G'],
+      ),
       material: dto.material || '',
       pair: Number(dto.pair) || 0,
       bundlePosition: 0,
+      catalogPosition,
       sports: Array.isArray(dto.sports) ? dto.sports : [],
       colors,
       desc: dto.desc || '',
@@ -199,9 +224,13 @@ export class ProductsService implements OnModuleInit {
   async saveBundleSelection(bottomIds: number[], topIds: number[]) {
     const ids = [...bottomIds, ...topIds];
     if (!bottomIds.length || !topIds.length)
-      throw new BadRequestException('Selecione pelo menos um produto em cada coluna.');
+      throw new BadRequestException(
+        'Selecione pelo menos um produto em cada coluna.',
+      );
     if (new Set(ids).size !== ids.length)
-      throw new BadRequestException('Selecione produtos diferentes em cada posição.');
+      throw new BadRequestException(
+        'Selecione produtos diferentes em cada posição.',
+      );
     const selected = await this.products.find({ where: { id: In(ids) } });
     if (selected.length !== ids.length)
       throw new BadRequestException('Um dos produtos selecionados não existe.');
@@ -209,8 +238,8 @@ export class ProductsService implements OnModuleInit {
     const invalidBottom = bottomIds.some(
       (id) => !isBundleBottomCategory(byId.get(id)?.cat || ''),
     );
-    const invalidTop = topIds.some((id) =>
-      !isBundleTopCategory(byId.get(id)?.cat || ''),
+    const invalidTop = topIds.some(
+      (id) => !isBundleTopCategory(byId.get(id)?.cat || ''),
     );
     if (invalidBottom || invalidTop)
       throw new BadRequestException(
@@ -239,6 +268,27 @@ export class ProductsService implements OnModuleInit {
           { id },
           { bundlePosition: position + 1 },
         );
+    });
+    return this.listActive();
+  }
+
+  async saveCatalogOrder(productIds: number[]) {
+    const existing = await this.products.find({
+      order: { catalogPosition: 'ASC', id: 'ASC' },
+    });
+    const existingIds = new Set(existing.map((product) => product.id));
+    if (
+      productIds.length !== existing.length ||
+      new Set(productIds).size !== existing.length ||
+      productIds.some((id) => !existingIds.has(id))
+    )
+      throw new BadRequestException(
+        'A ordem precisa conter todos os produtos cadastrados.',
+      );
+
+    await this.products.manager.transaction(async (manager) => {
+      for (const [catalogPosition, id] of productIds.entries())
+        await manager.update(ProductEntity, { id }, { catalogPosition });
     });
     return this.listActive();
   }
@@ -324,6 +374,24 @@ export class ProductsService implements OnModuleInit {
     return this.getRecord(productId);
   }
 
+  async updateImageMetadata(
+    productId: number,
+    imageId: string,
+    colorName?: string | null,
+  ) {
+    const product = await this.getProductOrThrow(productId);
+    const image = await this.getOwnedImage(productId, imageId);
+    const normalizedColor = colorName?.trim() || null;
+    if (
+      normalizedColor &&
+      !product.colors.some((color) => color.name === normalizedColor)
+    )
+      throw new BadRequestException('A cor selecionada não existe na peça.');
+    image.colorName = normalizedColor;
+    await this.images.save(image);
+    return this.getRecord(productId);
+  }
+
   async reorderImages(productId: number, imageIds: string[]) {
     await this.getProductOrThrow(productId);
     const current = await this.images.find({ where: { productId } });
@@ -389,6 +457,7 @@ export class ProductsService implements OnModuleInit {
       material: row.material,
       pair: row.pairId || 0,
       bundlePosition: row.bundlePosition || 0,
+      catalogPosition: row.catalogPosition || 0,
       sports: row.sports,
       colors: (row.colors || [])
         .sort((a, b) => a.position - b.position)
@@ -408,6 +477,7 @@ export class ProductsService implements OnModuleInit {
         id: image.id,
         url: image.url,
         altText: image.altText,
+        colorName: image.colorName,
         position: image.position,
         isPrimary: image.isPrimary,
       })),
@@ -433,6 +503,7 @@ export class ProductsService implements OnModuleInit {
       material: data.material,
       pairId: data.pair || null,
       bundlePosition: data.bundlePosition || null,
+      catalogPosition: data.catalogPosition || 0,
       sports: data.sports,
       colors: this.createColors(data.id, data.colors),
       desc: data.desc,

@@ -19,9 +19,11 @@ import { ManagerGuard } from '../auth/guards/manager.guard';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
+import { UpdateProductImageMetadataDto } from './dto/update-product-image-metadata.dto';
 import { ReorderProductImagesDto } from './dto/reorder-product-images.dto';
 import { BundleSelectionDto } from './dto/bundle-selection.dto';
 import { ShowcaseSelectionDto } from './dto/showcase-selection.dto';
+import { ReorderProductsDto } from './dto/reorder-products.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -69,6 +71,14 @@ export class ProductsController {
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
   saveBundleSelection(@Body() dto: BundleSelectionDto) {
     return this.products.saveBundleSelection(dto.bottomIds, dto.topIds);
+  }
+
+  @Patch('catalog-order')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  saveCatalogOrder(@Body() dto: ReorderProductsDto) {
+    return this.products.saveCatalogOrder(dto.productIds);
   }
 
   @Patch(':id')
@@ -124,6 +134,17 @@ export class ProductsController {
     @Param('imageId') imageId: string,
   ) {
     return this.products.setPrimaryImage(id, imageId);
+  }
+
+  @Patch(':id/images/:imageId')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  updateImageMetadata(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('imageId') imageId: string,
+    @Body() dto: UpdateProductImageMetadataDto,
+  ) {
+    return this.products.updateImageMetadata(id, imageId, dto.colorName);
   }
 
   @Delete(':id/images/:imageId')

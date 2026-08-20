@@ -15,6 +15,7 @@ import { UsersModule } from './users/users.module';
 import { MelhorEnvioModule } from './integrations/melhor-envio/melhor-envio.module';
 import { ReturnsModule } from './returns/returns.module';
 import { CreditsModule } from './credits/credits.module';
+import { HeroModule } from './hero/hero.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { CreditsModule } from './credits/credits.module';
     MelhorEnvioModule,
     ReturnsModule,
     CreditsModule,
+    HeroModule,
     AdminModule,
   ],
 })

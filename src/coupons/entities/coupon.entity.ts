@@ -4,7 +4,7 @@ import { decimalTransformer } from '../../persistence/column-transformers';
 import { TimestampedEntity } from '../../persistence/timestamped.entity';
 
 @Entity({ name: 'coupons' })
-@Check('ck_coupons_pct', 'pct >= 0 AND pct <= 100')
+@Check('ck_coupons_pct', 'pct >= 0 AND pct <= 99')
 @Check('ck_coupons_uses', 'uses >= 0')
 export class CouponEntity extends TimestampedEntity {
   @PrimaryColumn({ type: 'varchar', length: 80 })
@@ -17,6 +17,9 @@ export class CouponEntity extends TimestampedEntity {
     transformer: decimalTransformer,
   })
   pct: number;
+
+  @Column({ name: 'minimum_charge', type: 'boolean', default: false })
+  minimumCharge: boolean;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;

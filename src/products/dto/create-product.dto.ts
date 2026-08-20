@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsHexColor,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -92,8 +93,7 @@ export class CreateProductDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
-  @Max(5)
+  @IsIn([4.8, 4.9, 5])
   rating?: number;
 
   @IsOptional()

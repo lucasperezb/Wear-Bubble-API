@@ -15,6 +15,7 @@ import { CreditsService } from '../credits/credits.service';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
+import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
 import { OrderCounterEntity } from './entities/order-counter.entity';
 import { OrderItemEntity } from './entities/order-item.entity';
 import { OrderEntity } from './entities/order.entity';
@@ -122,27 +123,44 @@ export class OrdersService {
         .toUpperCase() || null;
     let couponPct = 0;
     let coupon: CouponRecord | null = null;
+    let minimumChargeCoupon = false;
     if (couponCode) {
       coupon = await this.coupons.getActive(couponCode, uid, delivery?.email);
       if (coupon.minSubtotal && subtotal < coupon.minSubtotal)
         throw new BadRequestException(
           `O cupom exige uma compra mínima de R$ ${coupon.minSubtotal}.`,
         );
-      couponPct = Math.min(90, Math.max(0, Number(coupon.pct) || 0));
-      subtotal *= 1 - couponPct / 100;
+      minimumChargeCoupon = coupon.minimumCharge === true;
+      const adjusted = applyCouponToSubtotal(
+        subtotal,
+        coupon.pct,
+        minimumChargeCoupon,
+      );
+      subtotal = adjusted.subtotal;
+      couponPct = adjusted.couponPct;
     }
-    // Preços vigentes, conjunto e cupom compõem a base. O desconto Pix é
-    // aplicado somente depois e não retira o frete grátis já conquistado.
+    // Promoções, conjuntos e cupons compõem a base do frete grátis. O Pix é
+    // aplicado depois e não retira um benefício já conquistado.
     const freeShippingSubtotal = subtotal;
-    const productTotal =
+    const discountedProductTotal =
       Math.round(
-        subtotal * (method === 'Pix' ? 1 - this.config.pixDiscount : 1) * 100,
+        subtotal *
+          (method === 'Pix' && !minimumChargeCoupon
+            ? 1 - this.config.pixDiscount
+            : 1) *
+          100,
       ) / 100;
-    const creditCode =
-      String(dto?.creditCode || '')
-        .trim()
-        .toUpperCase() || null;
+    const productTotal =
+      method === 'Pix'
+        ? enforceMinimumCharge(discountedProductTotal)
+        : discountedProductTotal;
+    const creditCode = minimumChargeCoupon
+      ? null
+      : String(dto?.creditCode || '')
+          .trim()
+          .toUpperCase() || null;
     const shippingPrice =
+      minimumChargeCoupon ||
       freeShippingSubtotal >= this.config.freeShippingMinimum
         ? 0
         : Math.max(0, Number(shipping?.price) || 0);
@@ -151,10 +169,22 @@ export class OrdersService {
     const reservedCredit = creditCode
       ? await this.credits.reserve(uid, creditCode, beforeCredit)
       : null;
-    const total = Math.max(
+    let total = Math.max(
       0,
       Math.round((beforeCredit - (reservedCredit?.amount || 0)) * 100) / 100,
     );
+    if (method === 'Pix' && total > 0 && total < MINIMUM_CHARGE) {
+      const creditToRelease = Math.min(
+        reservedCredit?.amount || 0,
+        MINIMUM_CHARGE - total,
+      );
+      if (reservedCredit && creditToRelease > 0) {
+        await this.credits.release(reservedCredit.code, creditToRelease);
+        reservedCredit.amount =
+          Math.round((reservedCredit.amount - creditToRelease) * 100) / 100;
+      }
+      total = MINIMUM_CHARGE;
+    }
     const order: OrderRecord = {
       id: randomUUID(),
       customerId: uid,
@@ -286,6 +316,20 @@ export class OrdersService {
     return order;
   }
 
+  async updateAddress(id: string, dto: UpdateOrderAddressDto) {
+    const row = await this.orders.findOneBy({ id });
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
+    row.shippingCep = String(dto.cep).trim();
+    row.shippingStreet = String(dto.street).trim();
+    row.shippingNeighborhood = String(dto.neighborhood).trim();
+    row.shippingNumber = String(dto.number).trim();
+    row.shippingReference = String(dto.reference || '').trim();
+    row.shippingCity = String(dto.city).trim();
+    row.shippingState = String(dto.state).trim().toUpperCase();
+    await this.orders.save(row);
+    return this.toRecord(row);
+  }
+
   findEntity(id: string) {
     return this.orders.findOneBy({ id });
   }
@@ -381,7 +425,9 @@ export function calculateBundleSubtotal(lines: BundleLine[]) {
     if (grouped.length !== 2 || grouped[0].productId === grouped[1].productId) {
       return subtotal;
     }
-    const bottom = grouped.find((line) => isBundleBottomCategory(line.category));
+    const bottom = grouped.find((line) =>
+      isBundleBottomCategory(line.category),
+    );
     const top = grouped.find((line) => isBundleTopCategory(line.category));
     if (!bottom || !top) return subtotal;
     const matchedQuantity = Math.min(bottom.quantity, top.quantity);
@@ -408,4 +454,24 @@ function isBundleTopCategory(category: string) {
 function productPrice(price: number, promoPct = 0) {
   const discount = Math.min(90, Math.max(0, Math.round(Number(promoPct) || 0)));
   return Math.round((Number(price) || 0) * (1 - discount / 100) * 100) / 100;
+}
+
+export const MINIMUM_CHARGE = 0.5;
+export const SPECIAL_COUPON_TOTAL = 5;
+
+export function applyCouponToSubtotal(
+  subtotal: number,
+  percentage: number,
+  minimumCharge: boolean,
+) {
+  if (minimumCharge) {
+    return { subtotal: SPECIAL_COUPON_TOTAL, couponPct: 0 };
+  }
+  const couponPct = Math.min(99, Math.max(0, Number(percentage) || 0));
+  return { subtotal: subtotal * (1 - couponPct / 100), couponPct };
+}
+
+export function enforceMinimumCharge(total: number) {
+  const rounded = Math.max(0, Math.round((Number(total) || 0) * 100) / 100);
+  return rounded > 0 && rounded < MINIMUM_CHARGE ? MINIMUM_CHARGE : rounded;
 }

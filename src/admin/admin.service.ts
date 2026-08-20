@@ -45,7 +45,9 @@ export class AdminService {
       profiles,
       addresses,
     ] = await Promise.all([
-      this.products.find(),
+      this.products.find({
+        order: { catalogPosition: 'ASC', id: 'ASC' },
+      }),
       this.orders.find(),
       this.events.find(),
       this.users.findAll(),
@@ -79,6 +81,7 @@ export class AdminService {
         material: row.material,
         pair: row.pairId || 0,
         bundlePosition: row.bundlePosition || 0,
+        catalogPosition: row.catalogPosition || 0,
         sports: row.sports,
         colors: row.colors.map((color) => ({
           n: color.name,
@@ -103,6 +106,7 @@ export class AdminService {
             id: image.id,
             url: image.url,
             altText: image.altText,
+            colorName: image.colorName,
             position: image.position,
             isPrimary: image.isPrimary,
           })),
@@ -177,6 +181,7 @@ export class AdminService {
       coupons: coupons.map((coupon) => ({
         code: coupon.code,
         pct: coupon.pct,
+        minimumCharge: coupon.minimumCharge,
         active: coupon.active,
         expiresAt: coupon.expiresAt?.getTime() || null,
         maxUses: coupon.maxUses,

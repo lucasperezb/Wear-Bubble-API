@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class ProductPageShowcases1784858000000 implements MigrationInterface {
-  name = 'ProductPageShowcases1784858000000';
+export class ProductPageShowcases1784862000000 implements MigrationInterface {
+  name = 'ProductPageShowcases1784862000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -18,10 +18,10 @@ export class ProductPageShowcases1784858000000 implements MigrationInterface {
     `);
     await queryRunner.query(`
       INSERT INTO product_showcases (page_key, position, product_id)
-      SELECT 'home', ROW_NUMBER() OVER (ORDER BY id), id
+      SELECT 'home', ROW_NUMBER() OVER (ORDER BY catalog_position, id), id
       FROM products
       WHERE active = true AND stock > 0
-      ORDER BY id
+      ORDER BY catalog_position, id
       LIMIT 4
     `);
   }

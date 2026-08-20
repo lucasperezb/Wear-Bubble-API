@@ -19,8 +19,12 @@ export class CreateCouponDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  @Max(90)
+  @Max(99)
   pct?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  minimumCharge?: boolean;
 
   @IsOptional()
   @IsBoolean()

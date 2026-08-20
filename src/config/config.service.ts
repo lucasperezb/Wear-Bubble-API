@@ -83,7 +83,7 @@ export class AppConfigService {
 
   get smtpUser() {
     return (
-      this.config.get<string>('SMTP_USER') || 'contato@wearbubble.com.br'
+      this.config.get<string>('SMTP_USER') || 'gerente@wearbubble.com.br'
     ).trim();
   }
 

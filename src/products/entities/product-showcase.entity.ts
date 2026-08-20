@@ -1,4 +1,11 @@
-import { Check, Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import {
+  Check,
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryColumn,
+} from 'typeorm';
 import { ProductEntity } from './product.entity';
 
 @Entity({ name: 'product_showcases' })
@@ -14,6 +21,9 @@ export class ProductShowcaseEntity {
   productId: number;
 
   @ManyToOne(() => ProductEntity, { eager: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id', foreignKeyConstraintName: 'fk_product_showcases_product' })
+  @JoinColumn({
+    name: 'product_id',
+    foreignKeyConstraintName: 'fk_product_showcases_product',
+  })
   product: ProductEntity;
 }
