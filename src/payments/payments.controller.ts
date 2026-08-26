@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
+  HttpStatus,
   ParseUUIDPipe,
   Post,
   Param,
@@ -51,6 +53,7 @@ export class PaymentsController {
   }
 
   @Post('webhook/asaas')
+  @HttpCode(HttpStatus.OK)
   @ApiHeader({
     name: 'asaas-access-token',
     description: 'Token de autenticação configurado no webhook do Asaas.',
