@@ -365,7 +365,7 @@ export class MelhorEnvioService {
     const event = String(payload.event || '');
     const providerOrderId = String(payload.data?.id || '');
     if (!event.startsWith('order.') || !providerOrderId) {
-      throw new BadRequestException('Evento de etiqueta inválido.');
+      return { received: true, verification: true };
     }
     const id = createHash('sha256').update(rawBody).digest('hex');
     if (await this.webhookEvents.exists({ where: { id } })) {

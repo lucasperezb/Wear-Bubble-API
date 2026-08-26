@@ -36,6 +36,18 @@ describe('MelhorEnvioService security rules', () => {
     ).toThrow(UnauthorizedException);
   });
 
+  it('accepts the signed webhook registration test payload', async () => {
+    const body = Buffer.from('{}');
+    const signature = createHmac('sha256', config.melhorEnvioClientSecret)
+      .update(body)
+      .digest('base64');
+
+    await expect(service.handleWebhook(body, signature)).resolves.toEqual({
+      received: true,
+      verification: true,
+    });
+  });
+
   it('rejects quote tokens for services other than PAC and SEDEX', () => {
     const token = jwt.sign(
       {
