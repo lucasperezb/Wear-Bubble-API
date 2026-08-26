@@ -212,4 +212,55 @@ export class AppConfigService {
       this.config.get<string>('MELHOR_ENVIO_ORIGIN_POSTAL_CODE') || ''
     ).replace(/\D/g, '');
   }
+
+  get melhorEnvioAllowedServices() {
+    const configured =
+      this.config.get<string>('MELHOR_ENVIO_ALLOWED_SERVICES') || '1,2';
+    return configured
+      .split(',')
+      .map((value) => Number(value.trim()))
+      .filter((value) => value === 1 || value === 2);
+  }
+
+  get melhorEnvioRequireInvoice() {
+    const configured = this.config.get<string>('MELHOR_ENVIO_REQUIRE_INVOICE');
+    return configured === undefined
+      ? this.melhorEnvioEnv === 'production'
+      : configured === 'true';
+  }
+
+  get melhorEnvioSender() {
+    return {
+      name: (this.config.get<string>('MELHOR_ENVIO_SENDER_NAME') || '').trim(),
+      companyDocument: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_COMPANY_DOCUMENT') || ''
+      ).replace(/\D/g, ''),
+      stateRegister: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_STATE_REGISTER') || ''
+      ).trim(),
+      phone: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_PHONE') || ''
+      ).replace(/\D/g, ''),
+      email: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_EMAIL') || ''
+      ).trim(),
+      address: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_ADDRESS') || ''
+      ).trim(),
+      number: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_NUMBER') || ''
+      ).trim(),
+      complement: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_COMPLEMENT') || ''
+      ).trim(),
+      district: (
+        this.config.get<string>('MELHOR_ENVIO_SENDER_DISTRICT') || ''
+      ).trim(),
+      city: (this.config.get<string>('MELHOR_ENVIO_SENDER_CITY') || '').trim(),
+      state: (this.config.get<string>('MELHOR_ENVIO_SENDER_STATE') || '')
+        .trim()
+        .toUpperCase(),
+      postalCode: this.melhorEnvioOriginPostalCode,
+    };
+  }
 }

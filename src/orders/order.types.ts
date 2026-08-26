@@ -27,7 +27,18 @@ export type OrderShipping = {
   name: string;
   company: string;
   price: number;
+  carrierPrice?: number;
   deliveryTime: number;
+  packages?: ShippingPackage[];
+};
+
+export type ShippingPackage = {
+  height: number;
+  width: number;
+  length: number;
+  weight: number;
+  insuranceValue: number;
+  products: Array<{ id: string; quantity: number }>;
 };
 
 export type OrderRecord = {

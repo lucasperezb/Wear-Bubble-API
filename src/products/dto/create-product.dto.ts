@@ -124,6 +124,30 @@ export class CreateProductDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  weight?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  width?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  height?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  length?: number;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   pair?: number;

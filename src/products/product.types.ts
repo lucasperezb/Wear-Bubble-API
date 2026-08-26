@@ -14,6 +14,10 @@ export type ProductRecord = {
   active: boolean;
   sizes: string[];
   material: string;
+  weight?: number;
+  width?: number;
+  height?: number;
+  length?: number;
   pair: number;
   bundlePosition?: number;
   catalogPosition?: number;

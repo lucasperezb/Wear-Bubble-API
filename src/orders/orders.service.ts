@@ -224,6 +224,8 @@ export class OrdersService {
           shippingServiceName: shipping?.name || null,
           shippingCompany: shipping?.company || null,
           shippingPrice,
+          shippingCarrierPrice: shipping?.carrierPrice || 0,
+          shippingPackages: shipping?.packages || [],
           shippingDeliveryTime: shipping?.deliveryTime || null,
           items: lines.map((line) =>
             this.orderItems.create({
@@ -381,7 +383,10 @@ export class OrdersService {
               name: row.shippingServiceName || '',
               company: row.shippingCompany || '',
               price: row.shippingPrice,
+              carrierPrice: row.shippingCarrierPrice,
               deliveryTime: row.shippingDeliveryTime || 0,
+              packages: (row.shippingPackages ||
+                []) as OrderShipping['packages'],
             },
           }
         : {}),

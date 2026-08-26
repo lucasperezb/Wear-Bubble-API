@@ -79,6 +79,24 @@ export class ProductEntity extends TimestampedEntity {
   @Column({ type: 'varchar', length: 180, default: '' })
   material: string;
 
+  @Column({
+    type: 'numeric',
+    precision: 8,
+    scale: 3,
+    default: 0.3,
+    transformer: decimalTransformer,
+  })
+  weight: number;
+
+  @Column({ type: 'integer', default: 20 })
+  width: number;
+
+  @Column({ type: 'integer', default: 4 })
+  height: number;
+
+  @Column({ type: 'integer', default: 25 })
+  length: number;
+
   @Column({ name: 'pair_id', type: 'integer', nullable: true })
   pairId: number | null;
 

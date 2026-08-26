@@ -4,6 +4,8 @@ import {
   Controller,
   Get,
   Post,
+  Param,
+  ParseUUIDPipe,
   Query,
   Redirect,
   UseGuards,
@@ -14,6 +16,7 @@ import { ManagerGuard } from '../../auth/guards/manager.guard';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { MelhorEnvioService } from './melhor-envio.service';
 import { ShippingQuoteDto } from './dto/shipping-quote.dto';
+import { GenerateShipmentDto } from './dto/generate-shipment.dto';
 
 @Controller('integrations/melhor-envio')
 @ApiTags('Melhor Envio')
@@ -44,5 +47,20 @@ export class MelhorEnvioController {
   @Post('quote')
   quote(@Body() dto: ShippingQuoteDto) {
     return this.melhorEnvio.quote(dto);
+  }
+
+  @Get('orders/:id/shipments')
+  @UseGuards(ManagerGuard)
+  shipments(@Param('id', ParseUUIDPipe) id: string) {
+    return this.melhorEnvio.listShipments(id);
+  }
+
+  @Post('orders/:id/shipments')
+  @UseGuards(ManagerGuard)
+  generateShipments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GenerateShipmentDto,
+  ) {
+    return this.melhorEnvio.createShipments(id, dto);
   }
 }

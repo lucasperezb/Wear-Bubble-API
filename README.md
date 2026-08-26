@@ -91,6 +91,28 @@ da conexão em:
 GET /api/integrations/melhor-envio/status
 ```
 
+As cotações aceitam exclusivamente PAC (`1`) e SEDEX (`2`). Para gerar
+etiquetas, configure também `MELHOR_ENVIO_ALLOWED_SERVICES=1,2` e todos os
+campos `MELHOR_ENVIO_SENDER_*` descritos no `.env.example`. Em produção, a
+chave da NF-e é obrigatória por padrão; no sandbox isso pode ser alterado com
+`MELHOR_ENVIO_REQUIRE_INVOICE=false`.
+
+O gerente pode consultar e gerar as etiquetas de um pedido pago em:
+
+```text
+GET  /api/integrations/melhor-envio/orders/:id/shipments
+POST /api/integrations/melhor-envio/orders/:id/shipments
+```
+
+Depois de publicar a API, cadastre no aplicativo do Melhor Envio o webhook:
+
+```text
+POST https://SEU_DOMINIO/api/webhooks/melhor-envio
+```
+
+O endpoint valida `X-ME-Signature`, ignora eventos duplicados e atualiza
+automaticamente rastreio, postagem e entrega.
+
 ## Imagens dos produtos
 
 As galerias usam um bucket público do Supabase Storage. Configure somente no

@@ -121,6 +121,19 @@ export class OrderEntity extends TimestampedEntity {
   })
   shippingPrice: number;
 
+  @Column({
+    name: 'shipping_carrier_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  shippingCarrierPrice: number;
+
+  @Column({ name: 'shipping_packages', type: 'jsonb', default: () => "'[]'" })
+  shippingPackages: Array<Record<string, unknown>>;
+
   @Column({ name: 'shipping_delivery_time', type: 'integer', nullable: true })
   shippingDeliveryTime: number | null;
 
