@@ -22,6 +22,11 @@ import { ProductsService } from '../../products/products.service';
 import { EmailService } from '../../email/email.service';
 import { OrderEntity } from '../../orders/entities/order.entity';
 import { OrderRecord, ShippingPackage } from '../../orders/order.types';
+import {
+  ReturnRequestEntity,
+  ReturnStatus,
+} from '../../returns/entities/return-request.entity';
+import { ReturnEventEntity } from '../../returns/entities/return-event.entity';
 import { ShippingQuoteDto } from './dto/shipping-quote.dto';
 import { GenerateShipmentDto } from './dto/generate-shipment.dto';
 import { MelhorEnvioCredentialEntity } from './entities/melhor-envio-credential.entity';
@@ -66,6 +71,10 @@ export class MelhorEnvioService {
     private readonly shipments: Repository<OrderShipmentEntity>,
     @InjectRepository(MelhorEnvioWebhookEventEntity)
     private readonly webhookEvents: Repository<MelhorEnvioWebhookEventEntity>,
+    @InjectRepository(ReturnRequestEntity)
+    private readonly returnRequests: Repository<ReturnRequestEntity>,
+    @InjectRepository(ReturnEventEntity)
+    private readonly returnEvents: Repository<ReturnEventEntity>,
     @InjectRepository(OrderEntity)
     private readonly orders: Repository<OrderEntity>,
     private readonly products: ProductsService,
@@ -337,6 +346,133 @@ export class MelhorEnvioService {
     return rows.map((row) => this.shipmentRecord(row));
   }
 
+  async createReverseCart(input: {
+    orderId: string;
+    customerEmail: string;
+    customerPhone: string;
+    insuranceValue: number;
+  }) {
+    const original = await this.shipments.findOne({
+      where: { orderId: input.orderId },
+      order: { packageIndex: 'ASC' },
+    });
+    if (!original?.providerOrderId) {
+      throw new BadRequestException(
+        'O envio original precisa ter sido gerado pelo Melhor Envio antes da logística reversa.',
+      );
+    }
+    const serviceId = [1, 2].includes(original.serviceId)
+      ? original.serviceId
+      : 1;
+    const volume = original.volume as unknown as ShippingPackage;
+    const cart = (await this.authorizedRequest(
+      '/api/v2/me/cart/reverse',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          service: serviceId,
+          new_sender_mail: input.customerEmail,
+          new_sender_phone: input.customerPhone.replace(/\D/g, ''),
+          insurance_value: Math.max(0, Number(input.insuranceValue) || 0),
+          order_id: original.providerOrderId,
+          package: {
+            height: Math.max(1, Number(volume.height) || 4),
+            width: Math.max(1, Number(volume.width) || 20),
+            length: Math.max(1, Number(volume.length) || 25),
+            weight: Math.max(0.001, Number(volume.weight) || 0.3),
+          },
+          options: {
+            own_hand: false,
+            receipt: false,
+          },
+        }),
+      },
+      'Não foi possível criar a postagem reversa no Melhor Envio.',
+    )) as MelhorEnvioCartResponse;
+    if (!cart.id) {
+      throw new ServiceUnavailableException(
+        'O Melhor Envio não retornou o identificador da postagem reversa.',
+      );
+    }
+    return {
+      providerOrderId: cart.id,
+      serviceId,
+      status: cart.status || 'cart',
+      postingCode: cart.authorization_code || null,
+      tracking: cart.tracking || null,
+    };
+  }
+
+  async purchaseReverseShipment(providerOrderId: string) {
+    await this.authorizedRequest(
+      '/api/v2/me/shipment/checkout',
+      {
+        method: 'POST',
+        body: JSON.stringify({ orders: [providerOrderId] }),
+      },
+      'Não foi possível comprar a postagem reversa. Verifique o saldo da Melhor Carteira.',
+    );
+    return { status: 'purchased' };
+  }
+
+  async generateReverseShipment(providerOrderId: string) {
+    if (this.config.melhorEnvioEnv !== 'production') {
+      const suffix = createHash('sha256')
+        .update(providerOrderId)
+        .digest('hex')
+        .slice(0, 12)
+        .toUpperCase();
+      return {
+        status: 'sandbox_simulated',
+        postingCode: `SANDBOX-${suffix}`,
+        tracking: null,
+        printUrl: null,
+        expiresAt: new Date(Date.now() + 7 * 86_400_000),
+        sandbox: true,
+      };
+    }
+
+    await this.authorizedRequest(
+      '/api/v2/me/shipment/generate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ orders: [providerOrderId] }),
+      },
+      'Não foi possível gerar o código da postagem reversa.',
+    );
+
+    let details: Record<string, unknown> = {};
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      details = (await this.authorizedRequest(
+        `/api/v2/me/orders/${providerOrderId}`,
+        { method: 'GET' },
+        'A postagem foi comprada, mas o código ainda não pôde ser consultado.',
+      )) as Record<string, unknown>;
+      if (details.authorization_code) break;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+    const postingCode = String(details.authorization_code || '').trim();
+    if (!postingCode) {
+      throw new ServiceUnavailableException(
+        'A postagem foi comprada, mas o Melhor Envio ainda está processando o código. Tente emitir novamente em alguns instantes.',
+      );
+    }
+    const expiresAtValue =
+      details.expired_at ||
+      details.expires_at ||
+      details.authorization_code_expires_at;
+    const expiresAt = expiresAtValue ? new Date(String(expiresAtValue)) : null;
+    return {
+      status: String(details.status || 'generated'),
+      postingCode,
+      tracking: details.tracking ? String(details.tracking) : null,
+      printUrl: null,
+      expiresAt:
+        expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt : null,
+      sandbox: false,
+    };
+  }
+
   validateWebhookSignature(rawBody: Buffer, received?: string) {
     if (!received) throw new UnauthorizedException('Assinatura ausente.');
     const expected = createHmac('sha256', this.config.melhorEnvioClientSecret)
@@ -445,32 +581,39 @@ export class MelhorEnvioService {
   }
 
   private async generateAndPrint(shipment: OrderShipmentEntity) {
-    if (!shipment.providerOrderId || shipment.generatedAt) return;
+    if (!shipment.providerOrderId) return;
     try {
-      await this.authorizedRequest(
-        '/api/v2/me/shipment/generate',
-        {
-          method: 'POST',
-          body: JSON.stringify({ orders: [shipment.providerOrderId] }),
-        },
-        'Não foi possível gerar a etiqueta.',
-      );
-      shipment.status = 'generated';
-      shipment.generatedAt = new Date();
-      const printed = (await this.authorizedRequest(
-        '/api/v2/me/shipment/print',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            mode: 'public',
-            orders: [shipment.providerOrderId],
-          }),
-        },
-        'A etiqueta foi gerada, mas não foi possível obter o link de impressão.',
-      )) as MelhorEnvioPrintResponse;
-      shipment.printUrl = printed.url || null;
-      shipment.lastError = null;
-      await this.shipments.save(shipment);
+      if (!shipment.generatedAt) {
+        await this.authorizedRequest(
+          '/api/v2/me/shipment/generate',
+          {
+            method: 'POST',
+            body: JSON.stringify({ orders: [shipment.providerOrderId] }),
+          },
+          'Não foi possível gerar a etiqueta.',
+        );
+        shipment.status = 'generated';
+        shipment.generatedAt = new Date();
+        shipment.lastError = null;
+        await this.shipments.save(shipment);
+        await this.syncOrderShipping('order.generated', shipment);
+      }
+      if (!shipment.printUrl) {
+        const printed = (await this.authorizedRequest(
+          '/api/v2/me/shipment/print',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              mode: 'public',
+              orders: [shipment.providerOrderId],
+            }),
+          },
+          'A etiqueta foi gerada, mas não foi possível obter o link de impressão.',
+        )) as MelhorEnvioPrintResponse;
+        shipment.printUrl = printed.url || null;
+        shipment.lastError = null;
+        await this.shipments.save(shipment);
+      }
     } catch (error) {
       shipment.lastError = this.errorMessage(error);
       await this.shipments.save(shipment);
@@ -494,7 +637,10 @@ export class MelhorEnvioService {
     const shipment = await this.shipments.findOneBy({
       providerOrderId: String(data.id),
     });
-    if (!shipment) return;
+    if (!shipment) {
+      await this.applyReverseWebhookEvent(event, data);
+      return;
+    }
     shipment.status = String(data.status || event.replace('order.', ''));
     shipment.protocol = data.protocol || shipment.protocol;
     shipment.authorizationCode =
@@ -512,6 +658,89 @@ export class MelhorEnvioService {
     shipment.lastError = null;
     await this.shipments.save(shipment);
 
+    await this.syncOrderShipping(event, shipment);
+  }
+
+  private async applyReverseWebhookEvent(
+    event: string,
+    data: NonNullable<MelhorEnvioWebhookPayload['data']>,
+  ) {
+    const request = await this.returnRequests.findOneBy({
+      reverseProviderOrderId: String(data.id),
+    });
+    if (!request) return;
+
+    const previousStatus = request.status;
+    const previousPostingCode = request.postingCode;
+    const previousTracking = request.returnTracking;
+    request.reverseStatus = String(data.status || event.replace('order.', ''));
+    request.postingCode = data.authorization_code || request.postingCode;
+    request.returnTracking = data.tracking || request.returnTracking;
+    request.reverseLastError = null;
+
+    let nextStatus: ReturnStatus | null = null;
+    let label = '';
+    let message = '';
+    if (event === 'order.posted') {
+      nextStatus = 'returning';
+      request.postedAt = this.webhookDate(data.posted_at) || new Date();
+      label = 'Produto postado nos Correios';
+      message = 'A postagem foi confirmada e o produto está retornando.';
+    } else if (event === 'order.delivered') {
+      nextStatus = 'received';
+      request.receivedAt = this.webhookDate(data.delivered_at) || new Date();
+      label = 'Produto recebido pela Wear Bubble';
+      message = 'O pacote retornou e seguirá para conferência das peças.';
+    } else if (
+      event === 'order.generated' &&
+      request.status === 'approved' &&
+      request.postingCode
+    ) {
+      nextStatus = 'awaiting_posting';
+      label = 'Código de postagem disponível';
+      message = 'O código de postagem reversa foi gerado pelos Correios.';
+    }
+
+    if (nextStatus && nextStatus !== request.status) {
+      request.status = nextStatus;
+      request.publicNote = message;
+      const savedEvent = await this.returnEvents.save(
+        this.returnEvents.create({
+          requestId: request.id,
+          status: nextStatus,
+          label,
+          message,
+          actorType: 'system',
+          visibleToCustomer: true,
+          occurredAt: new Date(),
+        }),
+      );
+      request.events = [...(request.events || []), savedEvent];
+    }
+    await this.returnRequests.save(request);
+
+    if (
+      previousStatus !== request.status ||
+      previousPostingCode !== request.postingCode ||
+      previousTracking !== request.returnTracking
+    ) {
+      const order = await this.orders.findOneBy({ id: request.orderId });
+      if (order?.customerEmail) {
+        await this.email.sendReturnUpdate(
+          order.customerEmail,
+          order.customerName,
+          request.protocol,
+          label || 'Logística reversa atualizada',
+          message || request.publicNote,
+        );
+      }
+    }
+  }
+
+  private async syncOrderShipping(
+    event: string,
+    shipment: OrderShipmentEntity,
+  ) {
     const order = await this.orders.findOne({
       where: { id: shipment.orderId },
       relations: { items: true },
@@ -519,8 +748,7 @@ export class MelhorEnvioService {
     if (!order) return;
     const previousStage = order.shipStage;
     const previousTracking = order.tracking;
-    if (event === 'order.posted')
-      order.shipStage = Math.max(order.shipStage, 3);
+    order.shipStage = shippingStageForEvent(order.shipStage, event);
     if (event === 'order.delivered') {
       order.shipStage = 5;
       order.deliveredAt = shipment.deliveredAt || new Date();
@@ -1052,4 +1280,11 @@ export class MelhorEnvioService {
     }
     this.encryptionKey();
   }
+}
+
+export function shippingStageForEvent(currentStage: number, event: string) {
+  if (event === 'order.generated') return Math.max(currentStage, 2);
+  if (event === 'order.posted') return Math.max(currentStage, 3);
+  if (event === 'order.delivered') return 5;
+  return currentStage;
 }

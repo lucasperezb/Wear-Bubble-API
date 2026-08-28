@@ -13,11 +13,12 @@ import { AddressEntity } from '../account/entities/address.entity';
 import { ProfileEntity } from '../account/entities/profile.entity';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { AppConfigService } from '../config/config.service';
+import { AdvisoryLockService } from '../persistence/advisory-lock.service';
 import { EmailService } from '../email/email.service';
 import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { OrderDelivery, OrderRecord } from '../orders/order.types';
 import { OrdersService } from '../orders/orders.service';
-import { ProductsService } from '../products/products.service';
 import { UsersService } from '../users/users.service';
 import {
   CheckoutCustomerDto,
@@ -43,7 +44,7 @@ export class PaymentsService {
   constructor(
     private readonly config: AppConfigService,
     private readonly orders: OrdersService,
-    private readonly products: ProductsService,
+    private readonly inventory: InventoryService,
     private readonly email: EmailService,
     @InjectRepository(ProfileEntity)
     private readonly profiles: Repository<ProfileEntity>,
@@ -51,13 +52,14 @@ export class PaymentsService {
     private readonly addresses: Repository<AddressEntity>,
     private readonly users: UsersService,
     private readonly melhorEnvio: MelhorEnvioService,
+    private readonly locks: AdvisoryLockService,
   ) {}
 
   async status(orderId: string) {
-    const order = await this.orders.findEntity(orderId);
+    let order = await this.orders.findEntity(orderId);
     if (!order) throw new BadRequestException('Pedido inexistente.');
     if (
-      order.status === 'pending' &&
+      ['pending', 'expired'].includes(order.status) &&
       order.asaasPaymentId &&
       this.config.asaasApiKey
     ) {
@@ -68,10 +70,13 @@ export class PaymentsService {
         const payment = (await this.readJson(response)) as AsaasPayment;
         if (this.isPaid(payment.status, payment.billingType)) {
           await this.markOrderPaid(order, payment.id || null);
+          order = (await this.orders.findEntity(orderId)) || order;
         } else if (this.isCanceled(payment.status)) {
-          order.status = 'canceled';
           order.asaasPaymentId = payment.id || order.asaasPaymentId;
           await this.orders.saveEntity(order);
+          await this.inventory.cancelPendingOrder(order.id);
+          await this.orders.releaseStoreCredit(order);
+          order = (await this.orders.findEntity(orderId)) || order;
         }
       }
     }
@@ -102,16 +107,10 @@ export class PaymentsService {
       );
     }
     if (orderRow.gateway === 'store_credit') {
-      const order = this.orders.toRecord(orderRow);
-      for (const line of order.items || []) {
-        const productRow = await this.products.findEntity(Number(line.pid));
-        if (productRow) {
-          productRow.stock = Math.max(0, productRow.stock + line.qty);
-          await this.products.saveEntity(productRow);
-        }
-      }
+      await this.inventory.restockCanceledOrder(orderRow.id, true);
       orderRow.status = 'canceled';
-      await this.orders.saveEntity(orderRow);
+      orderRow.inventoryStatus = 'released';
+      orderRow.paymentStatus = 'refunded';
       await this.orders.releaseStoreCredit(orderRow);
       return {
         order: this.orders.toRecord(orderRow),
@@ -161,16 +160,14 @@ export class PaymentsService {
       );
     }
 
-    const order = this.orders.toRecord(orderRow);
-    for (const line of order.items || []) {
-      const productRow = await this.products.findEntity(Number(line.pid));
-      if (productRow) {
-        productRow.stock = Math.max(0, productRow.stock + line.qty);
-        await this.products.saveEntity(productRow);
-      }
-    }
+    await this.inventory.restockCanceledOrder(
+      orderRow.id,
+      cancellation.status === 'REFUNDED',
+    );
     orderRow.status = 'canceled';
-    await this.orders.saveEntity(orderRow);
+    orderRow.inventoryStatus = 'released';
+    orderRow.paymentStatus =
+      cancellation.status === 'REFUNDED' ? 'refunded' : 'refund_pending';
     await this.orders.releaseStoreCredit(orderRow);
     return { order: this.orders.toRecord(orderRow), cancellation };
   }
@@ -225,7 +222,7 @@ export class PaymentsService {
       if (method === 'Pix') {
         throw new BadRequestException('Este Pix já foi gerado.');
       }
-      return this.payExistingOrderWithCard(dto, remoteIp);
+      return this.payExistingOrderWithCard(user, dto, remoteIp);
     }
 
     const customer = await this.resolveCustomer(user, dto.customer);
@@ -242,10 +239,10 @@ export class PaymentsService {
         items,
         method,
         coupon: dto.coupon,
-        creditCode: dto.creditCode,
       },
       customer.delivery,
       shipping,
+      Boolean(user),
     );
     let paymentCreated = false;
 
@@ -306,8 +303,9 @@ export class PaymentsService {
         if (this.isPaid(payment.status, payment.billingType)) {
           await this.markOrderPaid(savedOrder, payment.id);
         } else if (this.isCanceled(payment.status)) {
-          savedOrder.status = 'canceled';
           await this.orders.saveEntity(savedOrder);
+          await this.inventory.cancelPendingOrder(savedOrder.id);
+          await this.orders.releaseStoreCredit(savedOrder);
         } else {
           await this.orders.saveEntity(savedOrder);
         }
@@ -359,6 +357,22 @@ export class PaymentsService {
   }
 
   private async payExistingOrderWithCard(
+    user: AuthenticatedUser | undefined,
+    dto: CreateCheckoutDto,
+    remoteIp: string,
+  ) {
+    // Serialize concurrent attempts (double-click, client retry) to switch
+    // the same pending order to card — without this, two near-simultaneous
+    // calls can both pass the "still pending" check, both delete the old
+    // Pix charge and create a new Asaas payment, and only the last DB write
+    // links an order to its charge, leaving the other orphaned.
+    return this.locks.withLock(`order:${dto.existingOrderId}`, () =>
+      this.payExistingOrderWithCardLocked(user, dto, remoteIp),
+    );
+  }
+
+  private async payExistingOrderWithCardLocked(
+    user: AuthenticatedUser | undefined,
     dto: CreateCheckoutDto,
     remoteIp: string,
   ) {
@@ -368,6 +382,16 @@ export class PaymentsService {
     }
     if (orderRow.status !== 'pending') {
       throw new BadRequestException('Este pedido não está mais pendente.');
+    }
+    const claimedEmail = String(dto.customer?.email || '')
+      .trim()
+      .toLowerCase();
+    const owns = user
+      ? user.uid === orderRow.customerUid
+      : Boolean(claimedEmail) &&
+        claimedEmail === (orderRow.customerEmail || '').toLowerCase();
+    if (!owns) {
+      throw new BadRequestException('Pedido pendente não encontrado.');
     }
     const order = this.orders.toRecord(orderRow);
     if (!order.delivery) {
@@ -483,10 +507,20 @@ export class PaymentsService {
       await this.markOrderPaid(orderRow, paymentId);
       return { ok: true };
     }
-    if (event === 'PAYMENT_DELETED' || status === 'DELETED') {
-      orderRow.status = 'canceled';
+    if (
+      (event === 'PAYMENT_DELETED' || status === 'DELETED') &&
+      ['pending', 'expired'].includes(orderRow.status)
+    ) {
+      // Only a never-committed order can be safely canceled here. A
+      // `paid`/`stock_conflict` order already has its own
+      // cancel/refund flow (cancelOrder / refundStockConflict) — running
+      // it through cancelPendingOrder as well would overwrite
+      // paymentStatus (e.g. 'refund_pending' → 'failed') and strand it
+      // outside the automatic refund process.
       orderRow.asaasPaymentId = paymentId || orderRow.asaasPaymentId;
       await this.orders.saveEntity(orderRow);
+      await this.inventory.cancelPendingOrder(orderRow.id);
+      await this.orders.releaseStoreCredit(orderRow);
     }
     return { ok: true };
   }
@@ -620,6 +654,11 @@ export class PaymentsService {
     }
     const delivery = this.normalizeDelivery(input);
     let user = await this.users.findByEmail(delivery.email);
+    if (user && user.emailVerified) {
+      throw new BadRequestException(
+        'Este e-mail já tem uma conta na Wear Bubble. Faça login para continuar a compra.',
+      );
+    }
     if (!user) {
       user = await this.users.save(
         this.users.create({
@@ -722,21 +761,63 @@ export class PaymentsService {
     orderRow: import('../orders/entities/order.entity').OrderEntity,
     paymentId: string | null,
   ) {
-    if (orderRow.status === 'paid') return;
-    const order = this.orders.toRecord(orderRow);
-    for (const line of order.items || []) {
-      const productRow = await this.products.findEntity(Number(line.pid));
-      if (productRow) {
-        productRow.stock = Math.max(0, productRow.stock - line.qty);
-        await this.products.saveEntity(productRow);
-      }
+    if (
+      orderRow.status === 'paid' &&
+      orderRow.inventoryStatus === 'committed'
+    ) {
+      return true;
     }
-    orderRow.status = 'paid';
-    orderRow.shipStage = Math.max(order.shipStage || 0, 1);
-    orderRow.paidAt = new Date();
-    orderRow.asaasPaymentId = paymentId;
-    await this.orders.saveEntity(orderRow);
-    await this.email.sendPaymentConfirmed(this.orders.toRecord(orderRow));
+    const result = await this.inventory.commitOrder(orderRow.id, paymentId);
+    if (!result.committed) {
+      await this.refundStockConflict(result.order);
+      return false;
+    }
+    await this.email.sendPaymentConfirmed(this.orders.toRecord(result.order));
+    return true;
+  }
+
+  private async refundStockConflict(
+    order: import('../orders/entities/order.entity').OrderEntity,
+  ) {
+    if (order.paymentStatus === 'refunded') return;
+    if (!(await this.inventory.claimStockConflictRefund(order.id))) return;
+    if (order.storeCreditCode && order.storeCreditAmount > 0) {
+      await this.orders.releaseStoreCredit(order);
+    }
+    if (order.gateway === 'store_credit') {
+      await this.inventory.markRefunded(order.id);
+      return;
+    }
+    if (order.gateway !== 'asaas' || !order.asaasPaymentId) {
+      await this.inventory.releaseStockConflictRefundClaim(order.id);
+      return;
+    }
+    try {
+      const response = await this.asaasRequest(
+        `/payments/${encodeURIComponent(order.asaasPaymentId)}/refund`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            description: `Estorno automático por conflito de estoque no pedido ${order.number}`,
+          }),
+        },
+      );
+      const data = await this.readJson(response);
+      if (!response.ok) {
+        this.logger.error(
+          `Falha no estorno automático do pedido ${order.number}: ${this.asaasError(data, 'erro desconhecido')}`,
+        );
+        await this.inventory.releaseStockConflictRefundClaim(order.id);
+        return;
+      }
+      await this.inventory.markRefunded(order.id);
+    } catch (error) {
+      this.logger.error(
+        `Falha no estorno automático do pedido ${order.number}.`,
+        error,
+      );
+      await this.inventory.releaseStockConflictRefundClaim(order.id);
+    }
   }
 
   private asaasRequest(path: string, init: RequestInit = {}) {
@@ -800,9 +881,14 @@ export class PaymentsService {
   }
 
   private isCanceled(status?: string) {
-    return ['REFUNDED', 'REFUND_REQUESTED', 'DELETED'].includes(
-      String(status || '').toUpperCase(),
-    );
+    return [
+      'REFUNDED',
+      'REFUND_REQUESTED',
+      'DELETED',
+      'DECLINED',
+      'CANCELED',
+      'CANCELLED',
+    ].includes(String(status || '').toUpperCase());
   }
 
   private normalizeMethod(method?: CreateCheckoutDto['method']) {

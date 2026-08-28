@@ -8,14 +8,15 @@ import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { AppConfigService } from '../config/config.service';
 import { CouponsService } from '../coupons/coupons.service';
-import { EmailService } from '../email/email.service';
 import { ProductsService } from '../products/products.service';
 import { CouponRecord } from '../coupons/coupon.types';
 import { CreditsService } from '../credits/credits.service';
+import { InventoryService } from '../inventory/inventory.service';
+import { EmailService } from '../email/email.service';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { ShipOrderDto } from './dto/ship-order.dto';
 import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
+import { UpdateShipStageDto } from './dto/update-ship-stage.dto';
 import { OrderCounterEntity } from './entities/order-counter.entity';
 import { OrderItemEntity } from './entities/order-item.entity';
 import { OrderEntity } from './entities/order.entity';
@@ -27,6 +28,7 @@ export class OrdersService {
     private readonly products: ProductsService,
     private readonly coupons: CouponsService,
     private readonly credits: CreditsService,
+    private readonly inventory: InventoryService,
     private readonly email: EmailService,
     @InjectRepository(OrderEntity)
     private readonly orders: Repository<OrderEntity>,
@@ -37,7 +39,13 @@ export class OrdersService {
   ) {}
 
   async create(uid: string, dto: CreateOrderDto) {
-    const order = await this.createPending(uid, dto);
+    const order = await this.createPending(
+      uid,
+      dto,
+      undefined,
+      undefined,
+      true,
+    );
     return { orderId: order.id, number: order.number, total: order.total };
   }
 
@@ -46,6 +54,7 @@ export class OrdersService {
     dto: CreateOrderDto,
     delivery?: OrderDelivery,
     shipping?: OrderShipping,
+    useAccountCredit = false,
   ): Promise<OrderRecord> {
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
@@ -53,11 +62,12 @@ export class OrdersService {
     let subtotal = 0;
     const bundleLines: BundleLine[] = [];
     const lines: OrderRecord['items'] = [];
+    const requestedQuantities = new Map<string, number>();
     for (const item of items) {
       const row = await this.products.findEntity(Number(item.pid));
-      const product = row ? this.products.toRecord(row) : undefined;
-      if (!product)
+      if (!row)
         throw new BadRequestException(`Produto ${item.pid} inexistente.`);
+      const product = this.products.toRecord(row);
       if (!product.active)
         throw new BadRequestException(`${product.name} indisponível.`);
       const qty = Math.max(
@@ -80,6 +90,11 @@ export class OrdersService {
           option.n.toLocaleLowerCase('pt-BR') ===
           color.toLocaleLowerCase('pt-BR'),
       );
+      const selectedColorEntity = (row.colors || []).find(
+        (option) =>
+          option.name.toLocaleLowerCase('pt-BR') ===
+          color.toLocaleLowerCase('pt-BR'),
+      );
       const variantQuantity = selectedColor?.sizes?.find(
         (option) => option.size.toUpperCase() === size,
       )?.q;
@@ -90,7 +105,13 @@ export class OrdersService {
       const available = hasVariantStock
         ? Number(variantQuantity) || 0
         : product.stock;
-      if (available < qty)
+      const productColorId = hasVariantStock
+        ? selectedColorEntity?.id || null
+        : null;
+      const stockKey = `${product.id}:${productColorId || 0}:${size}`;
+      const requested = (requestedQuantities.get(stockKey) || 0) + qty;
+      requestedQuantities.set(stockKey, requested);
+      if (available < requested)
         throw new BadRequestException(
           `Estoque insuficiente de ${product.name} na cor ${selectedColor?.n || color}, tamanho ${size}.`,
         );
@@ -107,6 +128,7 @@ export class OrdersService {
       lines.push({
         id: 0,
         pid: product.id,
+        productColorId,
         name: product.name,
         size,
         color: selectedColor?.n || color,
@@ -154,21 +176,18 @@ export class OrdersService {
       method === 'Pix'
         ? enforceMinimumCharge(discountedProductTotal)
         : discountedProductTotal;
-    const creditCode = minimumChargeCoupon
-      ? null
-      : String(dto?.creditCode || '')
-          .trim()
-          .toUpperCase() || null;
     const shippingPrice =
       minimumChargeCoupon ||
+      coupon?.freeShipping === true ||
       freeShippingSubtotal >= this.config.freeShippingMinimum
         ? 0
         : Math.max(0, Number(shipping?.price) || 0);
     const beforeCredit = Math.round((productTotal + shippingPrice) * 100) / 100;
     const orderNumber = await this.nextOrderNumber();
-    const reservedCredit = creditCode
-      ? await this.credits.reserve(uid, creditCode, beforeCredit)
-      : null;
+    const reservedCredit =
+      useAccountCredit && !minimumChargeCoupon
+        ? await this.credits.reserveBalance(uid, beforeCredit)
+        : null;
     let total = Math.max(
       0,
       Math.round((beforeCredit - (reservedCredit?.amount || 0)) * 100) / 100,
@@ -202,7 +221,7 @@ export class OrdersService {
       ...(delivery ? { delivery } : {}),
       ...(shipping ? { shipping: { ...shipping, price: shippingPrice } } : {}),
     };
-    try {
+    const insertOrderAndReserveStock = async () => {
       await this.orders.save(
         this.orders.create({
           id: order.id,
@@ -230,6 +249,7 @@ export class OrdersService {
           items: lines.map((line) =>
             this.orderItems.create({
               productId: line.pid,
+              productColorId: line.productColorId || null,
               productName: line.name,
               size: line.size,
               color: line.color,
@@ -242,6 +262,11 @@ export class OrdersService {
           couponCode: order.coupon,
           couponPct: order.couponPct,
           status: order.status,
+          inventoryStatus: 'none',
+          paymentStatus: 'pending',
+          stockConflictReason: null,
+          refundRequestedAt: null,
+          refundedAt: null,
           shipStage: order.shipStage,
           gateway: null,
           asaasCustomerId: null,
@@ -253,6 +278,30 @@ export class OrdersService {
           storeCreditAmount: order.storeCreditAmount || 0,
         }),
       );
+      try {
+        await this.inventory.reserveOrder(order.id);
+      } catch (error) {
+        // reserveOrder failed after the row above was already persisted
+        // (e.g. a concurrent buyer won the last unit) — delete the orphan
+        // instead of leaving a permanent status:'pending' row. The expiry
+        // sweep never touches it (inventoryStatus stays 'none'), and it
+        // would otherwise count against the coupon's usage limit forever.
+        await this.orders.delete({ id: order.id });
+        throw error;
+      }
+    };
+    try {
+      if (couponCode) {
+        await this.coupons.withLock(couponCode, async () => {
+          // Re-validate under the lock: closes the race where two
+          // concurrent orders both read "under the limit" before either
+          // was persisted.
+          await this.coupons.getActive(couponCode, uid, delivery?.email);
+          await insertOrderAndReserveStock();
+        });
+      } else {
+        await insertOrderAndReserveStock();
+      }
     } catch (error) {
       if (reservedCredit) {
         await this.credits.release(reservedCredit.code, reservedCredit.amount);
@@ -265,7 +314,8 @@ export class OrdersService {
 
   async rollbackPending(order: OrderRecord) {
     const row = await this.orders.findOneBy({ id: order.id });
-    if (!row || row.status !== 'pending') return;
+    if (!row || !['pending', 'expired'].includes(row.status)) return;
+    await this.inventory.cancelPendingOrder(order.id);
     await this.orders.delete({ id: order.id });
     if (order.coupon) await this.coupons.increment(order.coupon, -1);
     if (order.storeCreditCode && order.storeCreditAmount) {
@@ -277,16 +327,22 @@ export class OrdersService {
   }
 
   async releaseStoreCredit(row: OrderEntity) {
-    if (!row.storeCreditCode || row.storeCreditAmount <= 0) return;
-    await this.credits.release(row.storeCreditCode, row.storeCreditAmount);
+    const current = await this.orders.findOneBy({ id: row.id });
+    if (!current?.storeCreditCode || current.storeCreditAmount <= 0) return;
+    await this.credits.release(
+      current.storeCreditCode,
+      current.storeCreditAmount,
+    );
+    current.storeCreditAmount = 0;
     row.storeCreditAmount = 0;
-    await this.orders.save(row);
+    await this.orders.save(current);
   }
 
   async listMine(uid: string) {
     return (
       await this.orders.find({
         where: { customerUid: uid },
+        relations: { items: { product: { images: true } } },
         order: { orderedAt: 'DESC' },
       })
     ).map((row) => this.toRecord(row));
@@ -296,26 +352,6 @@ export class OrdersService {
     return (await this.orders.find({ order: { orderedAt: 'DESC' } })).map(
       (row) => this.toRecord(row),
     );
-  }
-
-  async ship(id: string, dto: ShipOrderDto) {
-    const row = await this.orders.findOneBy({ id });
-    if (!row) throw new NotFoundException('Pedido não encontrado.');
-    const previousStage = row.shipStage;
-    const previousTracking = row.tracking;
-    row.shipStage = Math.max(
-      0,
-      Math.min(5, parseInt(String(dto?.shipStage), 10) || 0),
-    );
-    if (row.shipStage === 5 && !row.deliveredAt) row.deliveredAt = new Date();
-    if (row.shipStage < 5) row.deliveredAt = null;
-    if (dto.tracking !== undefined) row.tracking = String(dto.tracking);
-    await this.orders.save(row);
-    const order = this.toRecord(row);
-    if (previousStage !== row.shipStage || previousTracking !== row.tracking) {
-      await this.email.sendShippingUpdate(order);
-    }
-    return order;
   }
 
   async updateAddress(id: string, dto: UpdateOrderAddressDto) {
@@ -330,6 +366,53 @@ export class OrdersService {
     row.shippingState = String(dto.state).trim().toUpperCase();
     await this.orders.save(row);
     return this.toRecord(row);
+  }
+
+  async updateShipStage(id: string, dto: UpdateShipStageDto) {
+    const row = await this.orders.findOneBy({ id });
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
+    if (row.status !== 'paid') {
+      throw new BadRequestException(
+        'Só é possível atualizar o envio de pedidos pagos.',
+      );
+    }
+    const previousStage = row.shipStage;
+    const previousTracking = row.tracking;
+    row.shipStage = dto.shipStage;
+    if (dto.tracking !== undefined) row.tracking = dto.tracking.trim() || null;
+    if (dto.shipStage >= 5 && !row.deliveredAt) row.deliveredAt = new Date();
+    if (dto.shipStage < 5) row.deliveredAt = null;
+    await this.orders.save(row);
+    if (previousStage !== row.shipStage || previousTracking !== row.tracking) {
+      await this.email.sendShippingUpdate(this.toRecord(row));
+    }
+    return this.toRecord(row);
+  }
+
+  async deleteOrder(id: string) {
+    const row = await this.orders.findOneBy({ id });
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
+    if (row.status === 'paid') {
+      throw new BadRequestException(
+        'Cancele e estorne o pagamento antes de excluir o pedido.',
+      );
+    }
+    if (row.status === 'stock_conflict' && row.paymentStatus !== 'refunded') {
+      throw new BadRequestException(
+        'Aguarde a conclusão do estorno automático antes de excluir este pedido.',
+      );
+    }
+    const wasNeverCompleted = ['pending', 'expired'].includes(row.status);
+    if (wasNeverCompleted) {
+      await this.inventory.cancelPendingOrder(row.id);
+    }
+    if (row.storeCreditCode && row.storeCreditAmount > 0) {
+      await this.credits.release(row.storeCreditCode, row.storeCreditAmount);
+    }
+    if (wasNeverCompleted && row.couponCode) {
+      await this.coupons.increment(row.couponCode, -1);
+    }
+    await this.orders.delete({ id: row.id });
   }
 
   findEntity(id: string) {
@@ -349,7 +432,9 @@ export class OrdersService {
       items: (row.items || []).map((item) => ({
         id: item.id,
         pid: item.productId || 0,
+        productColorId: item.productColorId,
         name: item.productName,
+        image: orderItemImage(item),
         size: item.size,
         color: item.color,
         qty: item.quantity,
@@ -362,6 +447,9 @@ export class OrdersService {
       storeCreditCode: row.storeCreditCode,
       storeCreditAmount: row.storeCreditAmount,
       status: row.status,
+      inventoryStatus: row.inventoryStatus,
+      paymentStatus: row.paymentStatus,
+      stockConflictReason: row.stockConflictReason,
       shipStage: row.shipStage,
       delivery: {
         name: row.customerName,
@@ -407,6 +495,29 @@ export class OrdersService {
     await this.counters.save(counter);
     return `B${String(counter.value).padStart(5, '0')}`;
   }
+}
+
+function orderItemImage(item: OrderItemEntity) {
+  const product = item.product;
+  if (!product) return null;
+  const images = [...(product.images || [])].sort(
+    (left, right) => left.position - right.position,
+  );
+  const normalizedColor = item.color.trim().toLocaleLowerCase('pt-BR');
+  const colorImage = normalizedColor
+    ? images.find(
+        (image) =>
+          image.colorName?.trim().toLocaleLowerCase('pt-BR') ===
+          normalizedColor,
+      )
+    : undefined;
+  return (
+    colorImage?.url ||
+    images.find((image) => image.isPrimary)?.url ||
+    images[0]?.url ||
+    product.image ||
+    null
+  );
 }
 
 type BundleLine = {

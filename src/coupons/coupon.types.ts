@@ -2,6 +2,7 @@ export type CouponRecord = {
   code: string;
   pct: number;
   minimumCharge: boolean;
+  freeShipping: boolean;
   active: boolean;
   expiresAt: number | null;
   maxUses: number | null;

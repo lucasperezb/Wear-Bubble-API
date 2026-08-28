@@ -8,12 +8,14 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { ProductEntity } from '../../products/entities/product.entity';
+import { ProductColorEntity } from '../../products/entities/product-color.entity';
 import { decimalTransformer } from '../../persistence/column-transformers';
 import { OrderEntity } from './order.entity';
 
 @Entity({ name: 'order_items' })
 @Index('idx_order_items_order_id', ['orderId'])
 @Index('idx_order_items_product_id', ['productId'])
+@Index('idx_order_items_product_color_id', ['productColorId'])
 @Check('ck_order_items_quantity', 'quantity > 0')
 export class OrderItemEntity {
   @PrimaryGeneratedColumn()
@@ -41,6 +43,16 @@ export class OrderItemEntity {
     foreignKeyConstraintName: 'fk_order_items_product',
   })
   product?: ProductEntity | null;
+
+  @Column({ name: 'product_color_id', type: 'integer', nullable: true })
+  productColorId: number | null;
+
+  @ManyToOne(() => ProductColorEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({
+    name: 'product_color_id',
+    foreignKeyConstraintName: 'fk_order_items_product_color',
+  })
+  productColor?: ProductColorEntity | null;
 
   @Column({ name: 'product_name', type: 'varchar', length: 180 })
   productName: string;

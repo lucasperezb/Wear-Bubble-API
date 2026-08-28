@@ -25,6 +25,9 @@ import { ReturnEventEntity } from '../returns/entities/return-event.entity';
 import { StoreCreditEntity } from '../returns/entities/store-credit.entity';
 import { HeroConfigEntity } from '../hero/entities/hero-config.entity';
 import { HeroSlideEntity } from '../hero/entities/hero-slide.entity';
+import { InventoryReservationEntity } from '../inventory/entities/inventory-reservation.entity';
+import { InventoryMovementEntity } from '../inventory/entities/inventory-movement.entity';
+import { StoreCreditAllocationEntity } from '../credits/entities/store-credit-allocation.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
@@ -32,6 +35,19 @@ const booleanEnv = (value: string | undefined, fallback: boolean) =>
 const databaseUrl =
   process.env.DATABASE_URL || process.env.POSTGRES_URL || undefined;
 const databaseSsl = booleanEnv(process.env.DB_SSL, false);
+
+// Fail before ever opening a connection (and before migrations could run
+// against the wrong database) rather than silently falling back to the
+// well-known local dev credentials (bubble/bubble) in production.
+if (
+  process.env.NODE_ENV === 'production' &&
+  !databaseUrl &&
+  !process.env.DB_PASSWORD
+) {
+  throw new Error(
+    'DB_PASSWORD (ou DATABASE_URL) não configurado. A API não pode iniciar em produção com a credencial padrão de desenvolvimento.',
+  );
+}
 
 const ormconfig: DataSourceOptions = {
   type: 'postgres',
@@ -69,8 +85,11 @@ const ormconfig: DataSourceOptions = {
     ReturnItemEntity,
     ReturnEventEntity,
     StoreCreditEntity,
+    StoreCreditAllocationEntity,
     HeroConfigEntity,
     HeroSlideEntity,
+    InventoryReservationEntity,
+    InventoryMovementEntity,
   ],
   migrations: [`${__dirname}/migrations/*{.ts,.js}`],
   migrationsRun: booleanEnv(process.env.DB_MIGRATIONS_RUN, false),

@@ -11,6 +11,8 @@ export type ProductRecord = {
   rating: number;
   reviews: number;
   stock: number;
+  physicalStock?: number;
+  reservedStock?: number;
   active: boolean;
   sizes: string[];
   material: string;
@@ -25,7 +27,12 @@ export type ProductRecord = {
   colors: Array<{
     n: string;
     h: string;
-    sizes?: Array<{ size: string; q: number }>;
+    sizes?: Array<{
+      size: string;
+      q: number;
+      physicalQ?: number;
+      reservedQ?: number;
+    }>;
   }>;
   desc: string;
   image?: string | null;

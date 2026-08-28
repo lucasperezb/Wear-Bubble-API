@@ -12,8 +12,8 @@ import { AdminService } from './admin.service';
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
-  @Get('db')
-  databaseDump() {
-    return this.admin.databaseDump();
+  @Get('customers')
+  customers() {
+    return this.admin.customers();
   }
 }

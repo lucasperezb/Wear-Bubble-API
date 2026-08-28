@@ -7,9 +7,11 @@ import { ProductShowcaseEntity } from './entities/product-showcase.entity';
 import { ProductImageStorageService } from './product-image-storage.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [
+    InventoryModule,
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductColorEntity,

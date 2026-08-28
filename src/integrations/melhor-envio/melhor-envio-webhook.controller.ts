@@ -7,11 +7,13 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { MelhorEnvioService } from './melhor-envio.service';
 
 @Controller('webhooks/melhor-envio')
 @ApiTags('Melhor Envio Webhook')
+@SkipThrottle()
 export class MelhorEnvioWebhookController {
   constructor(private readonly melhorEnvio: MelhorEnvioService) {}
 

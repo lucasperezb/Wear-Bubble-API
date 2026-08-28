@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { CreditsService } from './credits.service';
+import { StoreCreditAllocationEntity } from './entities/store-credit-allocation.entity';
 
 describe('CreditsService', () => {
   const activeCredit = () => ({
@@ -13,16 +14,25 @@ describe('CreditsService', () => {
 
   function transactionalRepository(credit: ReturnType<typeof activeCredit>) {
     const repository: Record<string, any> = {
+      find: jest.fn(),
       findOne: jest.fn().mockResolvedValue(credit),
       findOneBy: jest.fn().mockResolvedValue(credit),
       save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
     };
     repository.manager = {
-      transaction: jest
-        .fn()
-        .mockImplementation((callback) =>
-          callback({ getRepository: () => repository }),
-        ),
+      transaction: jest.fn().mockImplementation((callback) => {
+        const allocationRepository = {
+          find: jest.fn().mockResolvedValue([]),
+          create: jest.fn((value) => value),
+          save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+        };
+        return callback({
+          getRepository: (entity) =>
+            entity === StoreCreditAllocationEntity
+              ? allocationRepository
+              : repository,
+        });
+      }),
     };
     return repository;
   }
@@ -62,5 +72,97 @@ describe('CreditsService', () => {
     await service.release('WB-ABC123', 90);
     expect(credit.balance).toBe(100);
     expect(repository.save).toHaveBeenCalled();
+  });
+
+  it('reserves the account balance across multiple credits', async () => {
+    const first = {
+      ...activeCredit(),
+      id: 'credit-1',
+      balance: 30,
+      initialAmount: 30,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    };
+    const second = {
+      ...activeCredit(),
+      id: 'credit-2',
+      code: 'WB-SECOND',
+      balance: 50,
+      initialAmount: 50,
+      expiresAt: new Date(Date.now() + 2 * 86_400_000),
+    };
+    const allocations: Array<Record<string, any>> = [];
+    const allocationRepository = {
+      create: jest.fn((value) => value),
+      save: jest.fn().mockImplementation((value) => {
+        allocations.push(value);
+        return Promise.resolve(value);
+      }),
+    };
+    const repository: Record<string, any> = {
+      find: jest.fn().mockResolvedValue([first, second]),
+      save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+    };
+    repository.manager = {
+      transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          getRepository: (entity) =>
+            entity === StoreCreditAllocationEntity
+              ? allocationRepository
+              : repository,
+        }),
+      ),
+    };
+    const service = new CreditsService(repository as never);
+
+    await expect(service.reserveBalance('customer-1', 60)).resolves.toEqual({
+      code: expect.any(String),
+      amount: 60,
+    });
+    expect(first.balance).toBe(0);
+    expect(first.status).toBe('used');
+    expect(second.balance).toBe(20);
+    expect(allocations.map((item) => item.amount)).toEqual([30, 30]);
+    expect(allocations[0].reservationId).toBe(allocations[1].reservationId);
+  });
+
+  it('restores an automatic reservation to its source credit', async () => {
+    const credit = {
+      ...activeCredit(),
+      id: 'credit-1',
+      initialAmount: 50,
+      balance: 10,
+    };
+    const allocation = {
+      reservationId: 'e65054ce-45ca-43c5-b584-e98bbf86e021',
+      creditId: credit.id,
+      amount: 40,
+      releasedAmount: 0,
+      createdAt: new Date(),
+    };
+    const allocationRepository = {
+      find: jest.fn().mockResolvedValue([allocation]),
+      save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+    };
+    const repository: Record<string, any> = {
+      findOne: jest.fn().mockResolvedValue(credit),
+      save: jest.fn().mockImplementation((value) => Promise.resolve(value)),
+    };
+    repository.manager = {
+      transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          getRepository: (entity) =>
+            entity === StoreCreditAllocationEntity
+              ? allocationRepository
+              : repository,
+        }),
+      ),
+    };
+    const service = new CreditsService(repository as never);
+
+    await service.release(allocation.reservationId, 15);
+
+    expect(credit.balance).toBe(25);
+    expect(allocation.releasedAmount).toBe(15);
+    expect(credit.status).toBe('active');
   });
 });

@@ -84,4 +84,11 @@ export class ReturnsController {
   ) {
     return this.returns.resolve(id, dto);
   }
+
+  @Post(':id/reverse-shipment')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  reverseShipment(@Param('id', ParseUUIDPipe) id: string) {
+    return this.returns.issueReverseShipment(id);
+  }
 }

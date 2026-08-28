@@ -7,11 +7,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'node:crypto';
 import { Repository } from 'typeorm';
+import { AdvisoryLockService } from '../persistence/advisory-lock.service';
 import { EmailService } from '../email/email.service';
 import { OrdersService } from '../orders/orders.service';
 import { PaymentsService } from '../payments/payments.service';
-import { ProductsService } from '../products/products.service';
 import { CreditsService } from '../credits/credits.service';
+import { InventoryService } from '../inventory/inventory.service';
+import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
 import { CreateReturnRequestDto } from './dto/create-return-request.dto';
 import {
   ResolveReturnRequestDto,
@@ -50,9 +52,11 @@ export class ReturnsService {
     private readonly credits: Repository<StoreCreditEntity>,
     private readonly orders: OrdersService,
     private readonly payments: PaymentsService,
-    private readonly products: ProductsService,
+    private readonly inventory: InventoryService,
     private readonly creditBalances: CreditsService,
     private readonly email: EmailService,
+    private readonly melhorEnvio: MelhorEnvioService,
+    private readonly locks: AdvisoryLockService,
   ) {}
 
   async create(customerUid: string, dto: CreateReturnRequestDto) {
@@ -67,32 +71,19 @@ export class ReturnsService {
       );
     }
     const deliveredAt = order.deliveredAt || order.updatedAt;
-    const elapsedDays = Math.floor(
-      (Date.now() - deliveredAt.getTime()) / 86_400_000,
-    );
-    if (dto.kind === 'return' && elapsedDays > 7) {
+    const elapsedMs = Date.now() - deliveredAt.getTime();
+    if (dto.kind === 'return' && elapsedMs > 7 * 86_400_000) {
       throw new BadRequestException(
         'O prazo de 7 dias para devolução por arrependimento terminou.',
       );
     }
-    if (dto.kind === 'exchange' && elapsedDays > 30) {
+    if (dto.kind === 'exchange' && elapsedMs > 30 * 86_400_000) {
       throw new BadRequestException('O prazo de 30 dias para troca terminou.');
     }
 
     const requestedIds = new Set(dto.items.map((item) => item.orderItemId));
     if (requestedIds.size !== dto.items.length) {
       throw new BadRequestException('Não repita uma peça na solicitação.');
-    }
-    const existing = await this.requests.find({ where: { orderId: order.id } });
-    const unavailable = new Map<number, number>();
-    for (const request of existing) {
-      if (['rejected', 'canceled'].includes(request.status)) continue;
-      for (const item of request.items || []) {
-        unavailable.set(
-          item.orderItemId,
-          (unavailable.get(item.orderItemId) || 0) + item.quantity,
-        );
-      }
     }
 
     const grossItems = order.items.reduce(
@@ -107,72 +98,92 @@ export class ReturnsService {
     );
     const discountFactor =
       grossItems > 0 ? Math.min(1, netItems / grossItems) : 1;
-    const selected: ReturnItemEntity[] = [];
-    for (const input of dto.items) {
-      const item = order.items.find((line) => line.id === input.orderItemId);
-      if (!item) {
-        throw new BadRequestException('Uma das peças não pertence ao pedido.');
-      }
-      const available = item.quantity - (unavailable.get(item.id) || 0);
-      if (input.quantity > available) {
-        throw new BadRequestException(
-          `Quantidade indisponível para devolução de ${item.productName}.`,
-        );
-      }
-      selected.push(
-        this.returnItems.create({
-          orderItemId: item.id,
-          quantity: input.quantity,
-          unitRefundValue:
-            Math.round(item.unitPrice * discountFactor * 100) / 100,
-          condition: 'pending',
-        }),
-      );
-    }
 
-    const autoApproved = dto.kind === 'return' && elapsedDays <= 7;
-    const request = this.requests.create({
-      protocol: this.protocol(),
-      orderId: order.id,
-      customerUid,
-      kind: dto.kind,
-      reason: dto.reason,
-      details: String(dto.details || '').trim(),
-      status: autoApproved ? 'approved' : 'requested',
-      publicNote: autoApproved
-        ? 'Sua devolução foi aprovada. O código de postagem será disponibilizado em breve.'
-        : '',
-      postingCode: null,
-      returnTracking: null,
-      postingExpiresAt: null,
-      resolution: null,
-      resolutionAmount: 0,
-      creditCode: null,
-      approvedAt: autoApproved ? new Date() : null,
-      postedAt: null,
-      receivedAt: null,
-      resolvedAt: null,
-      items: selected,
-      events: [
-        this.event(
-          'requested',
-          'Solicitação recebida',
-          'Recebemos sua solicitação e registramos os itens selecionados.',
-          'customer',
-        ),
-        ...(autoApproved
-          ? [
-              this.event(
-                'approved',
-                'Devolução aprovada',
-                'O pedido está dentro do prazo de arrependimento.',
-                'system',
-              ),
-            ]
-          : []),
-      ],
-    });
-    const saved = await this.requests.save(request);
+    // Locked: reading "already-requested quantities" and inserting the new
+    // request must be atomic w.r.t. other requests for the same order, or
+    // two concurrent submissions can both see the same item as available
+    // and double-claim its refund/credit.
+    const saved = await this.locks.withLock(
+      `return-order:${order.id}`,
+      async () => {
+        const existing = await this.requests.find({
+          where: { orderId: order.id },
+        });
+        const unavailable = new Map<number, number>();
+        for (const request of existing) {
+          if (['rejected', 'canceled'].includes(request.status)) continue;
+          for (const item of request.items || []) {
+            unavailable.set(
+              item.orderItemId,
+              (unavailable.get(item.orderItemId) || 0) + item.quantity,
+            );
+          }
+        }
+
+        const selected: ReturnItemEntity[] = [];
+        for (const input of dto.items) {
+          const item = order.items.find(
+            (line) => line.id === input.orderItemId,
+          );
+          if (!item) {
+            throw new BadRequestException(
+              'Uma das peças não pertence ao pedido.',
+            );
+          }
+          const available = item.quantity - (unavailable.get(item.id) || 0);
+          if (input.quantity > available) {
+            throw new BadRequestException(
+              `Quantidade indisponível para devolução de ${item.productName}.`,
+            );
+          }
+          selected.push(
+            this.returnItems.create({
+              orderItemId: item.id,
+              quantity: input.quantity,
+              unitRefundValue:
+                Math.round(item.unitPrice * discountFactor * 100) / 100,
+              condition: 'pending',
+            }),
+          );
+        }
+
+        const request = this.requests.create({
+          protocol: this.protocol(),
+          orderId: order.id,
+          customerUid,
+          kind: dto.kind,
+          reason: dto.reason,
+          details: String(dto.details || '').trim(),
+          status: 'requested',
+          publicNote: '',
+          postingCode: null,
+          returnTracking: null,
+          postingExpiresAt: null,
+          reverseProviderOrderId: null,
+          reverseServiceId: null,
+          reverseStatus: null,
+          reversePrintUrl: null,
+          reverseLastError: null,
+          resolution: null,
+          resolutionAmount: 0,
+          creditCode: null,
+          approvedAt: null,
+          postedAt: null,
+          receivedAt: null,
+          resolvedAt: null,
+          items: selected,
+          events: [
+            this.event(
+              'requested',
+              'Solicitação recebida',
+              'Recebemos sua solicitação e registramos os itens selecionados.',
+              'customer',
+            ),
+          ],
+        });
+        return this.requests.save(request);
+      },
+    );
     await this.notify(saved);
     return this.toRecord(saved, true);
   }
@@ -264,6 +275,94 @@ export class ReturnsService {
     return this.toRecord(row, true);
   }
 
+  async issueReverseShipment(id: string) {
+    const row = await this.get(id);
+    if (row.status === 'awaiting_posting' && row.postingCode) {
+      return this.toRecord(row, false);
+    }
+    if (row.status !== 'approved') {
+      throw new BadRequestException(
+        'A postagem reversa só pode ser emitida após a aprovação.',
+      );
+    }
+    const order = await this.orders.findEntity(row.orderId);
+    if (!order) throw new NotFoundException('Pedido não encontrado.');
+    if (!order.customerEmail || !order.customerPhone) {
+      throw new BadRequestException(
+        'Complete o e-mail e o telefone do cliente antes de emitir a postagem.',
+      );
+    }
+
+    try {
+      if (!row.reverseProviderOrderId) {
+        const cart = await this.melhorEnvio.createReverseCart({
+          orderId: row.orderId,
+          customerEmail: order.customerEmail,
+          customerPhone: order.customerPhone,
+          insuranceValue: this.calculatedAmount(row, order),
+        });
+        row.reverseProviderOrderId = cart.providerOrderId;
+        row.reverseServiceId = cart.serviceId;
+        row.reverseStatus = 'cart';
+        row.postingCode = cart.postingCode;
+        row.returnTracking = cart.tracking;
+        row.reverseLastError = null;
+        await this.requests.save(row);
+      }
+
+      if (row.reverseStatus === 'cart') {
+        await this.melhorEnvio.purchaseReverseShipment(
+          row.reverseProviderOrderId!,
+        );
+        row.reverseStatus = 'purchased';
+        row.reverseLastError = null;
+        await this.requests.save(row);
+      }
+
+      const generated = await this.melhorEnvio.generateReverseShipment(
+        row.reverseProviderOrderId!,
+      );
+      row.reverseStatus = generated.status;
+      row.postingCode = generated.postingCode;
+      row.returnTracking = generated.tracking;
+      row.reversePrintUrl = generated.printUrl;
+      row.postingExpiresAt = generated.expiresAt;
+      row.reverseLastError = null;
+      row.status = 'awaiting_posting';
+      row.approvedAt ||= new Date();
+      row.publicNote = generated.sandbox
+        ? 'Código simulado para teste em Sandbox. Nenhuma postagem real será aceita pelos Correios.'
+        : 'Leve o pacote a uma agência dos Correios e apresente o código de autorização de postagem.';
+      await this.addEvent(
+        row,
+        'awaiting_posting',
+        generated.sandbox
+          ? 'Postagem reversa simulada no Sandbox'
+          : 'Código de postagem disponível',
+        row.publicNote,
+        'system',
+      );
+      const saved = await this.requests.save(row);
+      await this.email.sendReturnPostingInstructions({
+        email: order.customerEmail,
+        name: order.customerName,
+        orderNumber: order.number,
+        protocol: row.protocol,
+        kind: row.kind,
+        postingCode: generated.postingCode,
+        expiresAt: generated.expiresAt,
+        printUrl: generated.printUrl,
+        sandbox: generated.sandbox,
+      });
+      return this.toRecord(saved, false);
+    } catch (error) {
+      row.reverseLastError =
+        error instanceof Error ? error.message : 'Falha desconhecida.';
+      await this.requests.save(row);
+      throw error;
+    }
+  }
+
   async resolve(id: string, dto: ResolveReturnRequestDto) {
     const row = await this.get(id);
     if (!['received', 'inspecting'].includes(row.status)) {
@@ -332,17 +431,16 @@ export class ReturnsService {
       row.creditCode = code;
     }
 
-    for (const returned of row.items) {
-      if (returned.condition !== 'resellable') continue;
-      const original = order.items.find(
-        (item) => item.id === returned.orderItemId,
-      );
-      if (!original?.productId) continue;
-      const product = await this.products.findEntity(original.productId);
-      if (!product) continue;
-      product.stock += returned.quantity;
-      await this.products.saveEntity(product);
-    }
+    await this.inventory.restockReturn(
+      row.id,
+      row.orderId,
+      row.items
+        .filter((returned) => returned.condition === 'resellable')
+        .map((returned) => ({
+          orderItemId: returned.orderItemId,
+          quantity: returned.quantity,
+        })),
+    );
     row.status = 'completed';
     row.resolution = dto.resolution;
     row.resolutionAmount = amount;
@@ -355,7 +453,7 @@ export class ReturnsService {
         ? 'Crédito Wear Bubble disponível'
         : 'Estorno solicitado ao Asaas',
       dto.resolution === 'credit'
-        ? `Crédito ${row.creditCode} gerado no valor aprovado.`
+        ? 'O valor aprovado foi adicionado ao saldo da sua conta.'
         : 'O valor foi devolvido aos meios de pagamento usados na compra.',
       'manager',
     );
@@ -455,6 +553,11 @@ export class ReturnsService {
       postingCode: row.postingCode,
       returnTracking: row.returnTracking,
       postingExpiresAt: row.postingExpiresAt?.getTime() || null,
+      reverseProviderOrderId: row.reverseProviderOrderId,
+      reverseServiceId: row.reverseServiceId,
+      reverseStatus: row.reverseStatus,
+      reversePrintUrl: row.reversePrintUrl,
+      reverseLastError: row.reverseLastError,
       resolution: row.resolution,
       resolutionAmount: row.resolutionAmount,
       creditCode: row.creditCode,

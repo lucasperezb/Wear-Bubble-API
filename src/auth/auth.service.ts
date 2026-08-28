@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -62,10 +61,20 @@ export class AuthService {
       throw new BadRequestException(
         'Nome, e-mail e senha (mín. de 6 caracteres) são obrigatórios.',
       );
-    if (await this.users.existsByEmail(email)) {
-      throw new ConflictException('Já existe uma conta com este e-mail.');
+    const existing = await this.users.findByEmail(email);
+    if (existing && existing.emailVerified) {
+      // Same response as a normal registration: never disclose whether an
+      // account already exists for this email.
+      this.tokens.clearCookie(res);
+      return { verificationRequired: true, email };
     }
-    const uid = randomUUID();
+    // An unverified match (abandoned signup, or a shadow account created
+    // by a prior guest checkout) can be claimed by a new registration —
+    // nobody has proven ownership of the email through it yet.
+    const uid = existing?.uid || randomUUID();
+    const existingProfile = existing
+      ? await this.profiles.findOneBy({ uid })
+      : null;
     const role: UserRecord['role'] =
       email === this.config.managerEmail ? 'manager' : 'customer';
     const user = await this.users.save(
@@ -84,8 +93,8 @@ export class AuthService {
           uid,
           name,
           email,
-          taxId: '',
-          phone: '',
+          taxId: existingProfile?.taxId || '',
+          phone: existingProfile?.phone || '',
         }),
       ),
       marketing && !(await this.leads.existsBy({ hash: sha256(email) }))
@@ -192,14 +201,28 @@ export class AuthService {
   }
 
   async requestPasswordReset(emailValue: string) {
+    const startedAt = Date.now();
     const email = this.normalizeEmail(emailValue);
     const response = {
       ok: true,
       message:
         'Se houver uma conta com este e-mail, enviaremos um link para redefinir a senha.',
     };
+    // Keep the response time roughly constant whether or not the email
+    // matched an account — otherwise the fast-reject path (no DB write, no
+    // SMTP send) is a timing oracle an attacker can use to enumerate
+    // registered emails, even though the response body itself is generic.
+    const finish = async () => {
+      const floorMs = 400;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < floorMs) {
+        await new Promise((resolve) => setTimeout(resolve, floorMs - elapsed));
+      }
+      return response;
+    };
+
     const user = await this.users.findByEmail(email);
-    if (!user) return response;
+    if (!user) return finish();
 
     const latest = await this.passwordResetTokens.findOne({
       where: { userUid: user.uid },
@@ -210,7 +233,7 @@ export class AuthService {
       !latest.usedAt &&
       Date.now() - latest.createdAt.getTime() < 60_000
     ) {
-      return response;
+      return finish();
     }
 
     await this.passwordResetTokens.update(
@@ -236,7 +259,7 @@ export class AuthService {
         error,
       );
     }
-    return response;
+    return finish();
   }
 
   async confirmPasswordReset(tokenValue: string, passwordValue: string) {
@@ -270,6 +293,9 @@ export class AuthService {
 
     user.passwordHash = await bcrypt.hash(password, 10);
     user.emailVerified = true;
+    // Invalidate every session token issued before this reset — a stolen
+    // token must not keep working after the account owner takes it back.
+    user.tokenVersion += 1;
     resetToken.usedAt = new Date();
     await this.users.save(user);
     await this.passwordResetTokens.update(

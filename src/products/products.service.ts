@@ -21,6 +21,7 @@ import {
   type ShowcaseKey,
 } from './showcase.constants';
 import { ProductImageStorageService } from './product-image-storage.service';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class ProductsService implements OnModuleInit {
@@ -34,6 +35,7 @@ export class ProductsService implements OnModuleInit {
     @InjectRepository(ProductShowcaseEntity)
     private readonly showcases: Repository<ProductShowcaseEntity>,
     private readonly imageStorage: ProductImageStorageService,
+    private readonly inventory: InventoryService,
   ) {}
 
   async onModuleInit() {
@@ -46,13 +48,22 @@ export class ProductsService implements OnModuleInit {
   }
 
   async listActive() {
-    return (
+    const rows = (
       await this.products.find({
         order: { catalogPosition: 'ASC', id: 'ASC' },
       })
-    )
-      .filter((product) => product.active)
-      .map((product) => this.toRecord(product));
+    ).filter((product) => product.active);
+    const reservations = await this.inventory.reservationSnapshot(
+      rows.map((product) => product.id),
+    );
+    return rows.map((product) => this.toAvailableRecord(product, reservations));
+  }
+
+  async listAdmin() {
+    const rows = await this.products.find({
+      order: { catalogPosition: 'ASC', id: 'ASC' },
+    });
+    return rows.map((row) => this.toRecord(row));
   }
 
   async listCollections() {
@@ -494,6 +505,34 @@ export class ProductsService implements OnModuleInit {
         isPrimary: image.isPrimary,
       })),
     };
+  }
+
+  private toAvailableRecord(
+    row: ProductEntity,
+    reservations: Awaited<ReturnType<InventoryService['reservationSnapshot']>>,
+  ): ProductRecord {
+    const record = this.toRecord(row);
+    const reservedStock = reservations.byProduct.get(row.id) || 0;
+    record.physicalStock = row.stock;
+    record.reservedStock = reservedStock;
+    record.stock = Math.max(0, row.stock - reservedStock);
+    record.colors = record.colors.map((color, index) => ({
+      ...color,
+      sizes: (color.sizes || []).map((size) => {
+        const physicalQ = Number(size.q) || 0;
+        const reservedQ =
+          reservations.byVariant.get(
+            `${row.id}:${row.colors[index]?.id || 0}:${normalizeProductSize(size.size)}`,
+          ) || 0;
+        return {
+          ...size,
+          q: Math.max(0, physicalQ - reservedQ),
+          physicalQ,
+          reservedQ,
+        };
+      }),
+    }));
+    return record;
   }
 
   private createEntity(data: ProductRecord) {

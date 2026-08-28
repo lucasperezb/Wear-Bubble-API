@@ -9,6 +9,8 @@ import { OrderEntity } from '../../orders/entities/order.entity';
 import { OrderShipmentEntity } from './entities/order-shipment.entity';
 import { MelhorEnvioWebhookEventEntity } from './entities/melhor-envio-webhook-event.entity';
 import { MelhorEnvioWebhookController } from './melhor-envio-webhook.controller';
+import { ReturnRequestEntity } from '../../returns/entities/return-request.entity';
+import { ReturnEventEntity } from '../../returns/entities/return-event.entity';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { MelhorEnvioWebhookController } from './melhor-envio-webhook.controller'
       OrderShipmentEntity,
       MelhorEnvioWebhookEventEntity,
       OrderEntity,
+      ReturnRequestEntity,
+      ReturnEventEntity,
     ]),
     ProductsModule,
     EmailModule,

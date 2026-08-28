@@ -1,7 +1,9 @@
 export type OrderLine = {
   id?: number;
   pid: number;
+  productColorId?: number | null;
   name: string;
+  image?: string | null;
   size: string;
   color: string;
   qty: number;
@@ -51,7 +53,16 @@ export type OrderRecord = {
   method: string;
   coupon: string | null;
   couponPct: number;
-  status: 'pending' | 'paid' | 'canceled';
+  status: 'pending' | 'paid' | 'canceled' | 'expired' | 'stock_conflict';
+  inventoryStatus?: 'none' | 'reserved' | 'committed' | 'released' | 'conflict';
+  paymentStatus?:
+    | 'pending'
+    | 'authorized'
+    | 'confirmed'
+    | 'refund_pending'
+    | 'refunded'
+    | 'failed';
+  stockConflictReason?: string | null;
   shipStage: number;
   delivery?: OrderDelivery;
   shipping?: OrderShipping;

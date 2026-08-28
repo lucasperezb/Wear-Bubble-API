@@ -92,6 +92,30 @@ export class ReturnRequestEntity extends TimestampedEntity {
   @Column({ name: 'posting_expires_at', type: 'timestamptz', nullable: true })
   postingExpiresAt: Date | null;
 
+  @Column({
+    name: 'reverse_provider_order_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  reverseProviderOrderId: string | null;
+
+  @Column({ name: 'reverse_service_id', type: 'integer', nullable: true })
+  reverseServiceId: number | null;
+
+  @Column({
+    name: 'reverse_status',
+    type: 'varchar',
+    length: 40,
+    nullable: true,
+  })
+  reverseStatus: string | null;
+
+  @Column({ name: 'reverse_print_url', type: 'text', nullable: true })
+  reversePrintUrl: string | null;
+
+  @Column({ name: 'reverse_last_error', type: 'text', nullable: true })
+  reverseLastError: string | null;
+
   @Column({ name: 'resolution', type: 'varchar', length: 20, nullable: true })
   resolution: 'credit' | 'refund' | null;
 

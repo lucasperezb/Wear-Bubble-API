@@ -24,7 +24,12 @@ describe('CouponsService customer usage limit', () => {
     const orders = {
       count: jest.fn().mockResolvedValue(customerUses),
     };
-    const service = new CouponsService(coupons as never, orders as never);
+    const locks = {};
+    const service = new CouponsService(
+      locks as never,
+      coupons as never,
+      orders as never,
+    );
     return { service, orders };
   }
 

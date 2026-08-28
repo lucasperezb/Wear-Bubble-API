@@ -7,5 +7,6 @@ export type UserRecord = {
   role: Role;
   marketingOptIn: boolean;
   emailVerified: boolean;
+  tokenVersion: number;
   createdAt: Date;
 };

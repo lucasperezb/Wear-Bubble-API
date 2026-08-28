@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiForbiddenResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { ManagerGuard } from '../auth/guards/manager.guard';
 import { CouponsService } from './coupons.service';
@@ -21,6 +22,7 @@ export class CouponsController {
   constructor(private readonly coupons: CouponsService) {}
 
   @Get(':code')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   get(@Param('code') code: string) {
     return this.coupons.validate(code);
   }

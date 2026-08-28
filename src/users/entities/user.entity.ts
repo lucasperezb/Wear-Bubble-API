@@ -35,6 +35,9 @@ export class UserEntity extends TimestampedEntity {
   @Column({ name: 'email_verified', type: 'boolean', default: false })
   emailVerified: boolean;
 
+  @Column({ name: 'token_version', type: 'int', default: 0 })
+  tokenVersion: number;
+
   @OneToOne(() => ProfileEntity, (profile) => profile.user)
   profile?: ProfileEntity;
 

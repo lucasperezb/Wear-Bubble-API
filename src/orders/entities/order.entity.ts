@@ -18,7 +18,18 @@ import { OrderItemEntity } from './order-item.entity';
 @Index('idx_orders_customer_uid', ['customerUid'])
 @Index('idx_orders_coupon_code', ['couponCode'])
 @Index('idx_orders_ordered_at', ['orderedAt'])
-@Check('ck_orders_status', `"status" IN ('pending', 'paid', 'canceled')`)
+@Check(
+  'ck_orders_status',
+  `"status" IN ('pending', 'paid', 'canceled', 'expired', 'stock_conflict')`,
+)
+@Check(
+  'ck_orders_inventory_status',
+  `inventory_status IN ('none', 'reserved', 'committed', 'released', 'conflict')`,
+)
+@Check(
+  'ck_orders_payment_status',
+  `payment_status IN ('pending', 'authorized', 'confirmed', 'refund_pending', 'refunded', 'failed')`,
+)
 @Check('ck_orders_ship_stage', 'ship_stage BETWEEN 0 AND 5')
 export class OrderEntity extends TimestampedEntity {
   @PrimaryColumn({ type: 'uuid' })
@@ -179,7 +190,38 @@ export class OrderEntity extends TimestampedEntity {
   couponPct: number;
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
-  status: 'pending' | 'paid' | 'canceled';
+  status: 'pending' | 'paid' | 'canceled' | 'expired' | 'stock_conflict';
+
+  @Column({
+    name: 'inventory_status',
+    type: 'varchar',
+    length: 20,
+    default: 'none',
+  })
+  inventoryStatus: 'none' | 'reserved' | 'committed' | 'released' | 'conflict';
+
+  @Column({
+    name: 'payment_status',
+    type: 'varchar',
+    length: 20,
+    default: 'pending',
+  })
+  paymentStatus:
+    | 'pending'
+    | 'authorized'
+    | 'confirmed'
+    | 'refund_pending'
+    | 'refunded'
+    | 'failed';
+
+  @Column({ name: 'stock_conflict_reason', type: 'text', nullable: true })
+  stockConflictReason: string | null;
+
+  @Column({ name: 'refund_requested_at', type: 'timestamptz', nullable: true })
+  refundRequestedAt: Date | null;
+
+  @Column({ name: 'refunded_at', type: 'timestamptz', nullable: true })
+  refundedAt: Date | null;
 
   @Column({ name: 'ship_stage', type: 'smallint', default: 0 })
   shipStage: number;

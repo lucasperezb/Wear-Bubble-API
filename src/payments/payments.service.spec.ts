@@ -28,9 +28,8 @@ describe('PaymentsService.cancelOrder', () => {
     saveEntity: jest.Mock;
     releaseStoreCredit: jest.Mock;
   };
-  let products: {
-    findEntity: jest.Mock;
-    saveEntity: jest.Mock;
+  let inventory: {
+    restockCanceledOrder: jest.Mock;
   };
   let service: PaymentsService;
 
@@ -44,9 +43,8 @@ describe('PaymentsService.cancelOrder', () => {
       saveEntity: jest.fn().mockResolvedValue(undefined),
       releaseStoreCredit: jest.fn().mockResolvedValue(undefined),
     };
-    products = {
-      findEntity: jest.fn().mockResolvedValue({ id: 1, stock: 3 }),
-      saveEntity: jest.fn().mockResolvedValue(undefined),
+    inventory = {
+      restockCanceledOrder: jest.fn().mockResolvedValue(undefined),
     };
     service = new PaymentsService(
       {
@@ -56,7 +54,8 @@ describe('PaymentsService.cancelOrder', () => {
         asaasUserAgent: 'WearBubble/Test',
       } as never,
       orders as never,
-      products as never,
+      inventory as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -92,11 +91,9 @@ describe('PaymentsService.cancelOrder', () => {
         }),
       }),
     );
-    expect(products.saveEntity).toHaveBeenCalledWith(
-      expect.objectContaining({ stock: 5 }),
-    );
-    expect(orders.saveEntity).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'canceled' }),
+    expect(inventory.restockCanceledOrder).toHaveBeenCalledWith(
+      orderRow.id,
+      true,
     );
     expect(orders.releaseStoreCredit).toHaveBeenCalled();
     expect(result.cancellation).toEqual(
@@ -121,7 +118,7 @@ describe('PaymentsService.cancelOrder', () => {
     await expect(service.cancelOrder(orderRow.id)).rejects.toThrow(
       ServiceUnavailableException,
     );
-    expect(products.saveEntity).not.toHaveBeenCalled();
+    expect(inventory.restockCanceledOrder).not.toHaveBeenCalled();
     expect(orders.saveEntity).not.toHaveBeenCalled();
   });
 });

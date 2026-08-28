@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiForbiddenResponse, ApiHeader, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -27,11 +28,13 @@ export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
   @Get('status/:orderId')
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
   status(@Param('orderId', ParseUUIDPipe) orderId: string) {
     return this.payments.status(orderId);
   }
 
   @Post('checkout')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   checkout(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Body() dto: CreateCheckoutDto,
@@ -53,6 +56,7 @@ export class PaymentsController {
   }
 
   @Post('webhook/asaas')
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   @ApiHeader({
     name: 'asaas-access-token',

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -15,8 +16,8 @@ import { AuthGuard } from '../auth/guards/auth.guard';
 import { ManagerGuard } from '../auth/guards/manager.guard';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { ShipOrderDto } from './dto/ship-order.dto';
 import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
+import { UpdateShipStageDto } from './dto/update-ship-stage.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -46,14 +47,6 @@ export class OrdersController {
     return this.orders.listAll();
   }
 
-  @Patch(':id/ship')
-  @UseGuards(ManagerGuard)
-  @ApiAuth()
-  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
-  ship(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ShipOrderDto) {
-    return this.orders.ship(id, dto);
-  }
-
   @Patch(':id/address')
   @UseGuards(ManagerGuard)
   @ApiAuth()
@@ -63,5 +56,25 @@ export class OrdersController {
     @Body() dto: UpdateOrderAddressDto,
   ) {
     return this.orders.updateAddress(id, dto);
+  }
+
+  @Patch(':id/ship-stage')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  updateShipStage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateShipStageDto,
+  ) {
+    return this.orders.updateShipStage(id, dto);
+  }
+
+  @Delete(':id')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
+    await this.orders.deleteOrder(id);
+    return { deleted: true };
   }
 }

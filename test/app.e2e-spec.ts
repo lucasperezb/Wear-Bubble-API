@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { AppConfigService } from '../src/config/config.service';
 import { setupSwagger } from '../src/config/swagger.config';
 
 describe('App (e2e)', () => {
@@ -14,7 +15,7 @@ describe('App (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
-    setupSwagger(app);
+    setupSwagger(app, moduleFixture.get(AppConfigService));
     await app.init();
   });
 

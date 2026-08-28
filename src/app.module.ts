@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/config.module';
 import { PersistenceModule } from './persistence/persistence.module';
 import { AccountModule } from './account/account.module';
@@ -16,9 +18,17 @@ import { MelhorEnvioModule } from './integrations/melhor-envio/melhor-envio.modu
 import { ReturnsModule } from './returns/returns.module';
 import { CreditsModule } from './credits/credits.module';
 import { HeroModule } from './hero/hero.module';
+import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60_000,
+        limit: 120,
+      },
+    ]),
     AppConfigModule,
     PersistenceModule,
     UsersModule,
@@ -35,7 +45,14 @@ import { HeroModule } from './hero/hero.module';
     ReturnsModule,
     CreditsModule,
     HeroModule,
+    InventoryModule,
     AdminModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

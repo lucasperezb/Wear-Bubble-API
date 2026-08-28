@@ -21,6 +21,9 @@ export class CouponEntity extends TimestampedEntity {
   @Column({ name: 'minimum_charge', type: 'boolean', default: false })
   minimumCharge: boolean;
 
+  @Column({ name: 'free_shipping', type: 'boolean', default: false })
+  freeShipping: boolean;
+
   @Column({ type: 'boolean', default: true })
   active: boolean;
 

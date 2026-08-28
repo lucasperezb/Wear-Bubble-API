@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, Repository } from 'typeorm';
+import { AdvisoryLockService } from '../persistence/advisory-lock.service';
 import { OrderEntity } from '../orders/entities/order.entity';
 import { CouponRecord } from './coupon.types';
 import { seedCoupons } from './coupon.seed';
@@ -17,11 +18,22 @@ import { CouponEntity } from './entities/coupon.entity';
 @Injectable()
 export class CouponsService implements OnModuleInit {
   constructor(
+    private readonly locks: AdvisoryLockService,
     @InjectRepository(CouponEntity)
     private readonly coupons: Repository<CouponEntity>,
     @InjectRepository(OrderEntity)
     private readonly orders: Repository<OrderEntity>,
   ) {}
+
+  /**
+   * Serializes concurrent redemption attempts for the same coupon code so
+   * `maxUses`/`maxUsesPerCustomer` can be safely re-checked (via getActive)
+   * right before the order that consumes them is persisted, closing the
+   * TOCTOU race between the check and the order insert.
+   */
+  withLock<T>(code: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.withLock(`coupon:${code}`, fn);
+  }
 
   async onModuleInit() {
     if (await this.coupons.count()) return;
@@ -31,6 +43,7 @@ export class CouponsService implements OnModuleInit {
           code: data.code,
           pct: data.pct,
           minimumCharge: data.minimumCharge,
+          freeShipping: data.freeShipping,
           active: data.active,
           expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
           maxUses: data.maxUses,
@@ -50,6 +63,7 @@ export class CouponsService implements OnModuleInit {
       code: coupon.code,
       pct: coupon.pct,
       minimumCharge: coupon.minimumCharge,
+      freeShipping: coupon.freeShipping,
       minSubtotal: coupon.minSubtotal || 0,
     };
   }
@@ -71,6 +85,7 @@ export class CouponsService implements OnModuleInit {
       code,
       pct: dto?.minimumCharge ? 0 : this.normalizePercentage(dto?.pct),
       minimumCharge: dto?.minimumCharge === true,
+      freeShipping: dto?.freeShipping === true,
       active: dto?.active !== false,
       expiresAt: dto?.expiresAt ? Number(dto.expiresAt) : null,
       maxUses: dto?.maxUses ? Number(dto.maxUses) : null,
@@ -87,6 +102,7 @@ export class CouponsService implements OnModuleInit {
         code,
         pct: data.pct,
         minimumCharge: data.minimumCharge,
+        freeShipping: data.freeShipping,
         active: data.active,
         expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
         maxUses: data.maxUses,
@@ -108,6 +124,7 @@ export class CouponsService implements OnModuleInit {
     const allowed = [
       'pct',
       'minimumCharge',
+      'freeShipping',
       'active',
       'maxUses',
       'maxUsesPerCustomer',
@@ -193,6 +210,7 @@ export class CouponsService implements OnModuleInit {
       code: row.code,
       pct: row.pct,
       minimumCharge: row.minimumCharge,
+      freeShipping: row.freeShipping,
       active: row.active,
       expiresAt: row.expiresAt?.getTime() || null,
       maxUses: row.maxUses,

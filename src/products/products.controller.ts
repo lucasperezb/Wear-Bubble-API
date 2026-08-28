@@ -46,6 +46,14 @@ export class ProductsController {
     return this.products.listShowcases();
   }
 
+  @Get('admin')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  listAdmin() {
+    return this.products.listAdmin();
+  }
+
   @Patch('showcases/:pageKey')
   @UseGuards(ManagerGuard)
   @ApiAuth()

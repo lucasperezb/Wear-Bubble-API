@@ -7,12 +7,14 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
 export class CreateCouponDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(80)
   code: string;
 
   @IsOptional()
@@ -25,6 +27,10 @@ export class CreateCouponDto {
   @IsOptional()
   @IsBoolean()
   minimumCharge?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  freeShipping?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -55,5 +61,6 @@ export class CreateCouponDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   assignedTo?: string;
 }

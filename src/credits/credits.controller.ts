@@ -9,6 +9,13 @@ import { CreditsService } from './credits.service';
 export class CreditsController {
   constructor(private readonly credits: CreditsService) {}
 
+  @Get('balance')
+  @UseGuards(AuthGuard)
+  @ApiAuth()
+  balance(@CurrentUser() user: AuthenticatedUser) {
+    return this.credits.balance(user.uid);
+  }
+
   @Get(':code')
   @UseGuards(AuthGuard)
   @ApiAuth()

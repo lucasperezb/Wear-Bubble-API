@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import 'dotenv/config';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import {
   BadRequestException,
   ValidationError,
@@ -16,8 +17,18 @@ import { AuthTokenService } from './auth/auth-token.service';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const env = app.get(AppConfigService);
+  env.assertProductionReadiness();
   const auth = app.get(AuthTokenService);
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  app.use(
+    helmet({
+      // The API only serves JSON, except for the Swagger HTML page (which
+      // needs inline styles/scripts from swagger-ui-dist) — a strict
+      // default CSP would just break that page for no security benefit.
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
   app.use(cookieParser());
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/auth')) {
@@ -38,20 +49,26 @@ async function bootstrap() {
       (typeof header === 'string' && header.startsWith('Bearer ')
         ? header.slice(7)
         : null);
-    if (token) {
-      try {
-        req.user = auth.verify(token);
-      } catch {
-        req.user = undefined;
-      }
+    if (!token) {
+      next();
+      return;
     }
-    next();
+    auth
+      .verify(token)
+      .then((user) => {
+        req.user = user;
+      })
+      .catch(() => {
+        req.user = undefined;
+      })
+      .finally(() => next());
   });
   app.enableCors({ origin: env.frontendOrigins, credentials: true });
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
       whitelist: true,
+      forbidNonWhitelisted: true,
       exceptionFactory: (errors) =>
         new BadRequestException({
           message: 'Revise os campos informados e tente novamente.',
@@ -61,11 +78,13 @@ async function bootstrap() {
   );
   app.setGlobalPrefix('api');
 
-  setupSwagger(app);
+  setupSwagger(app, env);
 
   await app.listen(env.port);
   console.log(`Wear Bubble API NestJS: http://localhost:${env.port}/api`);
-  console.log(`Swagger: http://localhost:${env.port}/api/docs`);
+  if (!env.isProduction) {
+    console.log(`Swagger: http://localhost:${env.port}/api/docs`);
+  }
   console.log(`Front-end autorizado: ${env.frontendOrigins.join(', ')}`);
   console.log(`Gerente: ${env.managerEmail}`);
   console.log(

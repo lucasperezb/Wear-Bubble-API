@@ -23,13 +23,25 @@ export class AppConfigService {
   }
 
   get jwtSecret() {
-    return (
-      this.config.get<string>('JWT_SECRET') || 'dev-secret-troque-em-producao'
-    );
+    const value = this.config.get<string>('JWT_SECRET');
+    if (value) return value;
+    if (this.isProduction) {
+      throw new Error(
+        'JWT_SECRET não configurado. A API não pode iniciar em produção sem esse segredo.',
+      );
+    }
+    return 'dev-secret-troque-em-producao';
   }
 
   get loginCodeSecret() {
-    return this.config.get<string>('LOGIN_CODE_SECRET') || this.jwtSecret;
+    const value = this.config.get<string>('LOGIN_CODE_SECRET');
+    if (value) return value;
+    if (this.isProduction) {
+      throw new Error(
+        'LOGIN_CODE_SECRET não configurado. A API não pode iniciar em produção sem esse segredo.',
+      );
+    }
+    return this.jwtSecret;
   }
 
   get managerEmail() {
@@ -44,6 +56,13 @@ export class AppConfigService {
 
   get bundleDiscount() {
     return Number(this.config.get('BUNDLE_DISCOUNT')) || 0.05;
+  }
+
+  get inventoryReservationMinutes() {
+    return Math.max(
+      1,
+      Number(this.config.get('INVENTORY_RESERVATION_MINUTES')) || 15,
+    );
   }
 
   get freeShippingMinimum() {
@@ -111,6 +130,50 @@ export class AppConfigService {
 
   get isProduction() {
     return this.config.get<string>('NODE_ENV') === 'production';
+  }
+
+  /**
+   * Fail fast on boot instead of silently serving sandbox/test behavior
+   * (fake Asaas charges, fake Melhor Envio tracking codes) to real customers.
+   */
+  assertProductionReadiness() {
+    if (!this.isProduction) return;
+    const problems: string[] = [];
+    try {
+      void this.jwtSecret;
+    } catch (error) {
+      problems.push((error as Error).message);
+    }
+    try {
+      void this.loginCodeSecret;
+    } catch (error) {
+      problems.push((error as Error).message);
+    }
+    if (this.asaasEnv !== 'production') {
+      problems.push(
+        'ASAAS_ENV não está definido como "production" — pagamentos cairiam no sandbox do Asaas.',
+      );
+    }
+    if (this.melhorEnvioEnv !== 'production') {
+      problems.push(
+        'MELHOR_ENVIO_ENV não está definido como "production" — etiquetas e códigos de rastreio de devolução seriam simulados (sandbox) e enviados a clientes reais.',
+      );
+    }
+    const managerEmailConfigured = this.config.get<string>('MANAGER_EMAIL');
+    if (!managerEmailConfigured) {
+      // The role assigned at registration is decided by comparing the new
+      // account's email to this value — if it's left at its documented
+      // default (also shipped in .env.example), anyone can register with
+      // that exact address and get role:'manager' immediately.
+      problems.push(
+        'MANAGER_EMAIL não está configurado — o e-mail padrão é público (está no .env.example) e permitiria virar gerente só se cadastrando com ele.',
+      );
+    }
+    if (problems.length) {
+      throw new Error(
+        `Configuração de produção inválida:\n- ${problems.join('\n- ')}`,
+      );
+    }
   }
 
   get storeUrl() {

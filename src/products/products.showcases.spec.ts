@@ -52,6 +52,12 @@ describe('ProductsService showcases', () => {
       {} as never,
       showcases as never,
       {} as never,
+      {
+        reservationSnapshot: jest.fn().mockResolvedValue({
+          byProduct: new Map(),
+          byVariant: new Map(),
+        }),
+      } as never,
     );
     return { service, products, showcases, manager };
   }

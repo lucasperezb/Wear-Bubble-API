@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import nodemailer, { Transporter } from 'nodemailer';
+
 import { AppConfigService } from '../config/config.service';
 import { OrderRecord } from '../orders/order.types';
 
@@ -14,6 +15,11 @@ type EmailMessage = {
   content: string;
   tag: string;
   idempotencyKey: string;
+  attachments?: Array<{
+    filename: string;
+    content: string | Buffer;
+    contentType: string;
+  }>;
 };
 
 @Injectable()
@@ -188,6 +194,55 @@ export class EmailService implements OnModuleInit {
     });
   }
 
+  async sendReturnPostingInstructions(input: {
+    email: string;
+    name: string;
+    orderNumber: string;
+    protocol: string;
+    kind: 'exchange' | 'return' | 'defect';
+    postingCode: string;
+    expiresAt: Date | null;
+    printUrl: string | null;
+    sandbox: boolean;
+  }) {
+    const kind = input.kind === 'exchange' ? 'troca' : 'devolução';
+    const expires = input.expiresAt
+      ? `<p><strong>Validade:</strong> ${this.date(input.expiresAt.getTime())}</p>`
+      : '';
+    const sandboxWarning = input.sandbox
+      ? '<div style="margin:18px 0;border:2px solid #a33;padding:14px;color:#8b1e1e"><strong>TESTE SANDBOX:</strong> este código é simulado e não será aceito em uma agência dos Correios.</div>'
+      : '';
+    const providerDocument = input.printUrl
+      ? `<p><a href="${this.escape(input.printUrl)}" style="font-weight:700">Abrir documento disponibilizado pelo Melhor Envio</a></p>`
+      : '';
+    await this.safeSend({
+      to: input.email,
+      name: input.name,
+      subject: `Código de postagem da ${kind} · ${input.orderNumber}`,
+      content: this.layout(
+        `Postagem da ${kind} autorizada`,
+        `<p>Olá, <strong>${this.escape(input.name.trim().split(/\s+/)[0] || input.name)}</strong>.</p>
+         <p>A postagem referente à solicitação <strong>${this.escape(input.protocol)}</strong>, do pedido <strong>${this.escape(input.orderNumber)}</strong>, está disponível.</p>
+         ${sandboxWarning}
+         <div style="margin:22px 0;background:#171410;color:#fff;padding:20px;text-align:center">
+           <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#f0b9cd">Código de autorização de postagem</div>
+           <div style="margin-top:8px;font-size:22px;font-weight:800;letter-spacing:.06em">${this.escape(input.postingCode)}</div>
+         </div>
+         ${expires}
+         <ol>
+           <li>Embale as peças em um único pacote.</li>
+           <li>Leve o pacote a uma agência própria ou franqueada dos Correios.</li>
+           <li>Apresente o código acima no atendimento.</li>
+         </ol>
+         <p><strong>Não é necessário colar uma etiqueta física no pacote.</strong></p>
+         ${providerDocument}
+         ${this.accountButton()}`,
+      ),
+      tag: 'return-posting',
+      idempotencyKey: `return-posting-${input.protocol}-${input.postingCode}`,
+    });
+  }
+
   private async safeSend(message: EmailMessage) {
     try {
       await this.send(message);
@@ -224,6 +279,7 @@ export class EmailService implements OnModuleInit {
         },
         subject: message.subject,
         html: message.content,
+        attachments: message.attachments,
         headers: {
           'X-Wear-Bubble-Event': message.tag,
           'X-Wear-Bubble-Idempotency-Key': message.idempotencyKey,
@@ -456,6 +512,8 @@ export class EmailService implements OnModuleInit {
         </body>
       </html>`;
   }
+
+
 
   private money(value: number) {
     return new Intl.NumberFormat('pt-BR', {
