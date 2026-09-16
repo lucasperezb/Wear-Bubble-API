@@ -10,6 +10,7 @@ import {
 import { OrderItemEntity } from '../../orders/entities/order-item.entity';
 import { decimalTransformer } from '../../persistence/column-transformers';
 import { TimestampedEntity } from '../../persistence/timestamped.entity';
+import { ProductMeasurements } from '../product.types';
 import { ProductColorEntity } from './product-color.entity';
 import { ProductImageEntity } from './product-image.entity';
 
@@ -121,6 +122,9 @@ export class ProductEntity extends TimestampedEntity {
 
   @Column({ name: 'description', type: 'text', default: '' })
   desc: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  measurements: ProductMeasurements | null;
 
   @Column({ type: 'text', nullable: true })
   image: string | null;

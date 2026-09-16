@@ -66,7 +66,7 @@ export class AppConfigService {
   }
 
   get freeShippingMinimum() {
-    return Math.max(0, Number(this.config.get('FREE_SHIPPING_MINIMUM')) || 199);
+    return Math.max(0, Number(this.config.get('FREE_SHIPPING_MINIMUM')) || 299);
   }
 
   get supabaseUrl() {
