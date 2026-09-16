@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -13,6 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { ProductMeasurements } from '../product.types';
 
 export class ProductColorSizeDto {
   @IsString()
@@ -170,4 +172,8 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   image?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  measurements?: ProductMeasurements | null;
 }

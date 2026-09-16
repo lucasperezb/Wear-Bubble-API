@@ -1,3 +1,24 @@
+/**
+ * Guia de medidas de uma peça. `rows` mapeia tamanho ("P") -> campo
+ * ("busto") -> valor em cm como texto, para aceitar faixas ("82–86").
+ * Campos permitidos: numeracao, busto, cintura, quadril, comprimento.
+ */
+export type ProductMeasurements = {
+  rows: Record<string, Record<string, string>>;
+  notes?: string;
+};
+
+export const MEASUREMENT_FIELDS = [
+  'numeracao',
+  'busto',
+  'cintura',
+  'quadril',
+  'comprimento',
+] as const;
+export const MEASUREMENT_VALUE_MAX_LENGTH = 24;
+export const MEASUREMENT_NOTES_MAX_LENGTH = 240;
+export const MEASUREMENT_MAX_SIZES = 12;
+
 export type ProductRecord = {
   id: number;
   name: string;
@@ -44,4 +65,5 @@ export type ProductRecord = {
     position: number;
     isPrimary: boolean;
   }>;
+  measurements?: ProductMeasurements | null;
 };

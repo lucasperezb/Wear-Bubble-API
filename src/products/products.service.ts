@@ -7,7 +7,14 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { In, Repository } from 'typeorm';
-import { ProductRecord } from './product.types';
+import {
+  MEASUREMENT_FIELDS,
+  MEASUREMENT_MAX_SIZES,
+  MEASUREMENT_NOTES_MAX_LENGTH,
+  MEASUREMENT_VALUE_MAX_LENGTH,
+  ProductMeasurements,
+  ProductRecord,
+} from './product.types';
 import { seedProducts } from './product.seed';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -191,6 +198,7 @@ export class ProductsService implements OnModuleInit {
       desc: dto.desc || '',
       image: dto.image || null,
       images: [],
+      measurements: this.sanitizeMeasurements(dto.measurements),
     };
     const saved = await this.products.save(this.createEntity(data));
     return this.toRecord(saved);
@@ -229,6 +237,8 @@ export class ProductsService implements OnModuleInit {
     if ('sizes' in dto) row.sizes = sortProductSizes(row.sizes);
     if ('cat' in dto && dto.cat !== previousCategory) row.bundlePosition = null;
     if ('pair' in dto) row.pairId = dto.pair ? Number(dto.pair) : null;
+    if ('measurements' in dto)
+      row.measurements = this.sanitizeMeasurements(dto.measurements);
     if ('colors' in dto) {
       const colors = Array.isArray(dto.colors) ? dto.colors : [];
       await this.colors.delete({ productId: id });
@@ -504,6 +514,7 @@ export class ProductsService implements OnModuleInit {
         position: image.position,
         isPrimary: image.isPrimary,
       })),
+      measurements: row.measurements || null,
     };
   }
 
@@ -564,7 +575,37 @@ export class ProductsService implements OnModuleInit {
       desc: data.desc,
       image: data.image || null,
       images: [],
+      measurements: data.measurements || null,
     });
+  }
+
+  private sanitizeMeasurements(input: unknown): ProductMeasurements | null {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      return null;
+    const source = input as { rows?: unknown; notes?: unknown };
+    const rows: ProductMeasurements['rows'] = {};
+    if (
+      source.rows &&
+      typeof source.rows === 'object' &&
+      !Array.isArray(source.rows)
+    )
+      for (const [rawSize, rawFields] of Object.entries(source.rows)) {
+        if (Object.keys(rows).length >= MEASUREMENT_MAX_SIZES) break;
+        const size = normalizeProductSize(rawSize);
+        if (!size || !rawFields || typeof rawFields !== 'object') continue;
+        const fields: Record<string, string> = {};
+        for (const field of MEASUREMENT_FIELDS) {
+          const value = measurementText(
+            (rawFields as Record<string, unknown>)[field],
+            MEASUREMENT_VALUE_MAX_LENGTH,
+          );
+          if (value) fields[field] = value;
+        }
+        if (Object.keys(fields).length) rows[size] = fields;
+      }
+    const notes = measurementText(source.notes, MEASUREMENT_NOTES_MAX_LENGTH);
+    if (!Object.keys(rows).length && !notes) return null;
+    return notes ? { rows, notes } : { rows };
   }
 
   private createColors(productId: number, colors: ProductRecord['colors']) {
@@ -697,4 +738,14 @@ function compareProductSizes(first: string, second: string) {
 
 function normalizePromoPct(value: unknown) {
   return Math.min(90, Math.max(0, Math.round(Number(value) || 0)));
+}
+
+function measurementText(value: unknown, maxLength: number) {
+  const text =
+    typeof value === 'string'
+      ? value
+      : typeof value === 'number' && Number.isFinite(value)
+        ? String(value)
+        : '';
+  return text.trim().slice(0, maxLength);
 }
