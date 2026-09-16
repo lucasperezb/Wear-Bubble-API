@@ -285,6 +285,9 @@ export class EmailService implements OnModuleInit {
           'X-Wear-Bubble-Idempotency-Key': message.idempotencyKey,
         },
       });
+      console.log(
+        `[email] ${message.tag} enviado para ${message.to} (messageId ${result.messageId})`,
+      );
       return { messageId: result.messageId };
     } catch (error) {
       console.error(
