@@ -53,6 +53,8 @@ export type OrderRecord = {
   method: string;
   coupon: string | null;
   couponPct: number;
+  /** Desconto progressivo por quantidade já abatido do total. */
+  progressiveDiscount?: number;
   status: 'pending' | 'paid' | 'canceled' | 'expired' | 'stock_conflict';
   inventoryStatus?: 'none' | 'reserved' | 'committed' | 'released' | 'conflict';
   paymentStatus?:

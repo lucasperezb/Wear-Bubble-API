@@ -58,6 +58,17 @@ describe('ProductsService showcases', () => {
           byVariant: new Map(),
         }),
       } as never,
+      {
+        getSettings: jest.fn().mockResolvedValue({
+          individualEnabled: true,
+          progressive: {
+            enabled: false,
+            tiers: [10, 20, 30],
+            extendLast: true,
+            stackWithOtherDiscounts: false,
+          },
+        }),
+      } as never,
     );
     return { service, products, showcases, manager };
   }

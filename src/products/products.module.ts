@@ -8,10 +8,12 @@ import { ProductImageStorageService } from './product-image-storage.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { InventoryModule } from '../inventory/inventory.module';
+import { PromotionsModule } from '../promotions/promotions.module';
 
 @Module({
   imports: [
     InventoryModule,
+    PromotionsModule,
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductColorEntity,

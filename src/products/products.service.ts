@@ -29,6 +29,7 @@ import {
 } from './showcase.constants';
 import { ProductImageStorageService } from './product-image-storage.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { PromotionsService } from '../promotions/promotions.service';
 
 @Injectable()
 export class ProductsService implements OnModuleInit {
@@ -43,6 +44,7 @@ export class ProductsService implements OnModuleInit {
     private readonly showcases: Repository<ProductShowcaseEntity>,
     private readonly imageStorage: ProductImageStorageService,
     private readonly inventory: InventoryService,
+    private readonly promotions: PromotionsService,
   ) {}
 
   async onModuleInit() {
@@ -63,7 +65,13 @@ export class ProductsService implements OnModuleInit {
     const reservations = await this.inventory.reservationSnapshot(
       rows.map((product) => product.id),
     );
-    return rows.map((product) => this.toAvailableRecord(product, reservations));
+    // Com a chave-mestra desligada a loja enxerga todas as peças a preço cheio;
+    // o valor cadastrado continua intacto para o painel (/products/admin).
+    const { individualEnabled } = await this.promotions.getSettings();
+    return rows.map((product) => {
+      const record = this.toAvailableRecord(product, reservations);
+      return individualEnabled ? record : { ...record, promoPct: 0 };
+    });
   }
 
   async listAdmin() {

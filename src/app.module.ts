@@ -18,6 +18,7 @@ import { MelhorEnvioModule } from './integrations/melhor-envio/melhor-envio.modu
 import { ReturnsModule } from './returns/returns.module';
 import { CreditsModule } from './credits/credits.module';
 import { HeroModule } from './hero/hero.module';
+import { PromotionsModule } from './promotions/promotions.module';
 import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
@@ -45,6 +46,7 @@ import { InventoryModule } from './inventory/inventory.module';
     ReturnsModule,
     CreditsModule,
     HeroModule,
+    PromotionsModule,
     InventoryModule,
     AdminModule,
   ],

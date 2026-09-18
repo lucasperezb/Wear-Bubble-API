@@ -25,6 +25,7 @@ import { ReturnEventEntity } from '../returns/entities/return-event.entity';
 import { StoreCreditEntity } from '../returns/entities/store-credit.entity';
 import { HeroConfigEntity } from '../hero/entities/hero-config.entity';
 import { HeroSlideEntity } from '../hero/entities/hero-slide.entity';
+import { PromotionSettingsEntity } from '../promotions/entities/promotion-settings.entity';
 import { InventoryReservationEntity } from '../inventory/entities/inventory-reservation.entity';
 import { InventoryMovementEntity } from '../inventory/entities/inventory-movement.entity';
 import { StoreCreditAllocationEntity } from '../credits/entities/store-credit-allocation.entity';
@@ -88,6 +89,7 @@ const ormconfig: DataSourceOptions = {
     StoreCreditAllocationEntity,
     HeroConfigEntity,
     HeroSlideEntity,
+    PromotionSettingsEntity,
     InventoryReservationEntity,
     InventoryMovementEntity,
   ],

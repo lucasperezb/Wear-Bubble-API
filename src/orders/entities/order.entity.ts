@@ -189,6 +189,16 @@ export class OrderEntity extends TimestampedEntity {
   })
   couponPct: number;
 
+  @Column({
+    name: 'progressive_discount',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  progressiveDiscount: number;
+
   @Column({ type: 'varchar', length: 20, default: 'pending' })
   status: 'pending' | 'paid' | 'canceled' | 'expired' | 'stock_conflict';
 
