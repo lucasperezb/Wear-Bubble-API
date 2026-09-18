@@ -58,6 +58,7 @@ describe('ProductsService measurements', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     return { service, products, row };
   }

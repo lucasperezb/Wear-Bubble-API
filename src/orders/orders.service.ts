@@ -13,6 +13,11 @@ import { CouponRecord } from '../coupons/coupon.types';
 import { CreditsService } from '../credits/credits.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { EmailService } from '../email/email.service';
+import { PromotionsService } from '../promotions/promotions.service';
+import {
+  calculateProgressiveDiscount,
+  ProgressiveUnit,
+} from '../promotions/progressive-discount';
 import { OrderDelivery, OrderRecord, OrderShipping } from './order.types';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderAddressDto } from './dto/update-order-address.dto';
@@ -30,6 +35,7 @@ export class OrdersService {
     private readonly credits: CreditsService,
     private readonly inventory: InventoryService,
     private readonly email: EmailService,
+    private readonly promotions: PromotionsService,
     @InjectRepository(OrderEntity)
     private readonly orders: Repository<OrderEntity>,
     @InjectRepository(OrderItemEntity)
@@ -59,9 +65,11 @@ export class OrdersService {
     const items = Array.isArray(dto?.items) ? dto.items : [];
     if (!items.length) throw new BadRequestException('Carrinho vazio.');
     const method = dto?.method === 'Pix' ? 'Pix' : 'Cartão de crédito';
+    const promotionSettings = await this.promotions.getSettings();
     let subtotal = 0;
     const bundleLines: BundleLine[] = [];
     const lines: OrderRecord['items'] = [];
+    const progressiveUnits: ProgressiveUnit[] = [];
     const requestedQuantities = new Map<string, number>();
     for (const item of items) {
       const row = await this.products.findEntity(Number(item.pid));
@@ -115,16 +123,30 @@ export class OrdersService {
         throw new BadRequestException(
           `Estoque insuficiente de ${product.name} na cor ${selectedColor?.n || color}, tamanho ${size}.`,
         );
-      const unitPrice = productPrice(product.price, product.promoPct);
+      const individualPct = promotionSettings.individualEnabled
+        ? product.promoPct
+        : 0;
+      const unitPrice = productPrice(product.price, individualPct);
       const lineTotal = unitPrice * qty;
       subtotal += lineTotal;
+      const bundle = String(item.bundle || '').trim();
       bundleLines.push({
-        bundle: String(item.bundle || '').trim(),
+        bundle,
         productId: product.id,
         category: product.cat,
         quantity: qty,
         unitPrice,
       });
+      // Sem "acumular", peças em promoção individual ou em conjunto ficam de fora.
+      const hasOtherDiscount = individualPct > 0 || Boolean(bundle);
+      for (let unit = 0; unit < qty; unit += 1)
+        progressiveUnits.push({
+          key: `${lines.length}`,
+          price: unitPrice,
+          eligible:
+            promotionSettings.progressive.stackWithOtherDiscounts ||
+            !hasOtherDiscount,
+        });
       lines.push({
         id: 0,
         pid: product.id,
@@ -138,6 +160,12 @@ export class OrdersService {
     }
     subtotal -=
       calculateBundleSubtotal(bundleLines) * this.config.bundleDiscount;
+    const progressive = calculateProgressiveDiscount(
+      progressiveUnits,
+      promotionSettings.progressive,
+    );
+    const progressiveDiscount = Math.min(progressive.discount, subtotal);
+    subtotal -= progressiveDiscount;
 
     const couponCode =
       String(dto?.coupon || '')
@@ -214,6 +242,7 @@ export class OrdersService {
       method,
       coupon: couponCode,
       couponPct,
+      progressiveDiscount,
       storeCreditCode: reservedCredit?.code || null,
       storeCreditAmount: reservedCredit?.amount || 0,
       status: 'pending',
@@ -261,6 +290,7 @@ export class OrdersService {
           method: order.method,
           couponCode: order.coupon,
           couponPct: order.couponPct,
+          progressiveDiscount: order.progressiveDiscount || 0,
           status: order.status,
           inventoryStatus: 'none',
           paymentStatus: 'pending',
@@ -444,6 +474,7 @@ export class OrdersService {
       method: row.method,
       coupon: row.couponCode,
       couponPct: row.couponPct,
+      progressiveDiscount: row.progressiveDiscount || 0,
       storeCreditCode: row.storeCreditCode,
       storeCreditAmount: row.storeCreditAmount,
       status: row.status,
