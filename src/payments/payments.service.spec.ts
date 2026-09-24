@@ -61,6 +61,7 @@ describe('PaymentsService.cancelOrder', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   });
 

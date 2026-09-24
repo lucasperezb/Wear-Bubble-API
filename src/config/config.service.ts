@@ -114,6 +114,19 @@ export class AppConfigService {
     return (this.config.get<string>('SMTP_FROM_EMAIL') || this.smtpUser).trim();
   }
 
+  /** Bot do Telegram que avisa a equipe sobre novas vendas. */
+  get telegramBotToken() {
+    return this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim() || '';
+  }
+
+  /** Um ou mais chats (separados por vírgula) que recebem o aviso de venda. */
+  get telegramChatIds() {
+    return (this.config.get<string>('TELEGRAM_CHAT_ID') || '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+
   get smtpFromName() {
     return this.config.get<string>('SMTP_FROM_NAME') || 'Wear Bubble';
   }
@@ -285,11 +298,12 @@ export class AppConfigService {
       .filter((value) => value === 1 || value === 2);
   }
 
+  /**
+   * Por padrão as etiquetas saem com declaração de conteúdo (sem NF-e).
+   * Defina MELHOR_ENVIO_REQUIRE_INVOICE=true para voltar a exigir a chave da nota.
+   */
   get melhorEnvioRequireInvoice() {
-    const configured = this.config.get<string>('MELHOR_ENVIO_REQUIRE_INVOICE');
-    return configured === undefined
-      ? this.melhorEnvioEnv === 'production'
-      : configured === 'true';
+    return this.config.get<string>('MELHOR_ENVIO_REQUIRE_INVOICE') === 'true';
   }
 
   get melhorEnvioSender() {

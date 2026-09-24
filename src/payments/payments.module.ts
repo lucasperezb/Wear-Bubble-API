@@ -9,6 +9,7 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { MelhorEnvioModule } from '../integrations/melhor-envio/melhor-envio.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     UsersModule,
     MelhorEnvioModule,
     InventoryModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([ProfileEntity, AddressEntity]),
   ],
   controllers: [PaymentsController],

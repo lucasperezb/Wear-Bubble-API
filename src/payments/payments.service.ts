@@ -17,6 +17,7 @@ import { AdvisoryLockService } from '../persistence/advisory-lock.service';
 import { EmailService } from '../email/email.service';
 import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { SaleNotifierService } from '../notifications/sale-notifier.service';
 import { OrderDelivery, OrderRecord } from '../orders/order.types';
 import { OrdersService } from '../orders/orders.service';
 import { UsersService } from '../users/users.service';
@@ -52,6 +53,7 @@ export class PaymentsService {
     private readonly addresses: Repository<AddressEntity>,
     private readonly users: UsersService,
     private readonly melhorEnvio: MelhorEnvioService,
+    private readonly saleNotifier: SaleNotifierService,
     private readonly locks: AdvisoryLockService,
   ) {}
 
@@ -772,7 +774,9 @@ export class PaymentsService {
       await this.refundStockConflict(result.order);
       return false;
     }
-    await this.email.sendPaymentConfirmed(this.orders.toRecord(result.order));
+    const record = this.orders.toRecord(result.order);
+    await this.email.sendPaymentConfirmed(record);
+    void this.saleNotifier.notifySale(record);
     return true;
   }
 

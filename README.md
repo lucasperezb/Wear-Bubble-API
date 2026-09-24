@@ -93,9 +93,9 @@ GET /api/integrations/melhor-envio/status
 
 As cotações aceitam exclusivamente PAC (`1`) e SEDEX (`2`). Para gerar
 etiquetas, configure também `MELHOR_ENVIO_ALLOWED_SERVICES=1,2` e todos os
-campos `MELHOR_ENVIO_SENDER_*` descritos no `.env.example`. Em produção, a
-chave da NF-e é obrigatória por padrão; no sandbox isso pode ser alterado com
-`MELHOR_ENVIO_REQUIRE_INVOICE=false`.
+campos `MELHOR_ENVIO_SENDER_*` descritos no `.env.example`. Por padrão as
+etiquetas saem com declaração de conteúdo (sem NF-e). Para exigir a chave da
+nota antes de gerar, use `MELHOR_ENVIO_REQUIRE_INVOICE=true`.
 
 O gerente pode consultar e gerar as etiquetas de um pedido pago em:
 
