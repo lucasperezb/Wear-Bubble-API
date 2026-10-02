@@ -90,7 +90,18 @@ export class PaymentsService {
     };
   }
 
-  async cancelOrder(orderId: string) {
+  cancelOrder(orderId: string, options: { refundedExternally?: boolean } = {}) {
+    // Mesma chave do pagamento: impede dois cancelamentos simultâneos (estoque
+    // e crédito devolvidos duas vezes) e cancelamento durante um pagamento.
+    return this.locks.withLock(`order:${orderId}`, () =>
+      this.cancelOrderLocked(orderId, options),
+    );
+  }
+
+  private async cancelOrderLocked(
+    orderId: string,
+    options: { refundedExternally?: boolean },
+  ) {
     const orderRow = await this.orders.findEntity(orderId);
     if (!orderRow) throw new BadRequestException('Pedido inexistente.');
     if (orderRow.status === 'canceled') {
@@ -113,11 +124,22 @@ export class PaymentsService {
       orderRow.status = 'canceled';
       orderRow.inventoryStatus = 'released';
       orderRow.paymentStatus = 'refunded';
+      // Snapshot antes de liberar o crédito, que zera storeCreditAmount.
+      const canceledRecord = this.orders.toRecord(orderRow);
+      const storeCredit = Number(orderRow.storeCreditAmount) || 0;
       await this.orders.releaseStoreCredit(orderRow);
+      await this.email.sendOrderCanceled(canceledRecord, {
+        amount: 0,
+        storeCredit,
+        pending: false,
+      });
       return {
         order: this.orders.toRecord(orderRow),
         cancellation: { status: 'STORE_CREDIT_RESTORED' },
       };
+    }
+    if (options.refundedExternally) {
+      return this.cancelWithManualRefund(orderRow);
     }
     if (orderRow.gateway !== 'asaas' || !orderRow.asaasPaymentId) {
       throw new BadRequestException(
@@ -170,8 +192,49 @@ export class PaymentsService {
     orderRow.inventoryStatus = 'released';
     orderRow.paymentStatus =
       cancellation.status === 'REFUNDED' ? 'refunded' : 'refund_pending';
+    // Snapshot antes de liberar o crédito, que zera storeCreditAmount.
+    const canceledRecord = this.orders.toRecord(orderRow);
+    const storeCredit = Number(orderRow.storeCreditAmount) || 0;
     await this.orders.releaseStoreCredit(orderRow);
+    await this.email.sendOrderCanceled(canceledRecord, {
+      amount: Number(cancellation.value) || Number(orderRow.total),
+      storeCredit,
+      pending: orderRow.paymentStatus === 'refund_pending',
+    });
     return { order: this.orders.toRecord(orderRow), cancellation };
+  }
+
+  /**
+   * Cancelamento com estorno manual, feito pelo gerente fora do sistema (que
+   * pode demorar). Não consulta o Asaas: o pedido sai do faturamento na hora
+   * e fica como refund_pending até o webhook PAYMENT_REFUNDED concluí-lo.
+   */
+  private async cancelWithManualRefund(
+    orderRow: import('../orders/entities/order.entity').OrderEntity,
+  ) {
+    this.logger.log(
+      JSON.stringify({
+        event: 'order.cancel.manual_refund',
+        orderId: orderRow.id,
+        paymentId: orderRow.asaasPaymentId,
+      }),
+    );
+    await this.inventory.restockCanceledOrder(orderRow.id, false);
+    orderRow.status = 'canceled';
+    orderRow.inventoryStatus = 'released';
+    orderRow.paymentStatus = 'refund_pending';
+    const canceledRecord = this.orders.toRecord(orderRow);
+    const storeCredit = Number(orderRow.storeCreditAmount) || 0;
+    await this.orders.releaseStoreCredit(orderRow);
+    await this.email.sendOrderCanceled(canceledRecord, {
+      amount: Number(orderRow.total),
+      storeCredit,
+      pending: true,
+    });
+    return {
+      order: this.orders.toRecord(orderRow),
+      cancellation: { status: 'MANUAL_REFUND', refundedExternally: true },
+    };
   }
 
   async refundOrderAmount(
@@ -255,6 +318,9 @@ export class PaymentsService {
           throw new ServiceUnavailableException('Pedido não foi persistido.');
         }
         savedOrder.gateway = 'store_credit';
+        // Persistir antes: commitOrder recarrega o pedido do banco e só
+        // grava status/estoque, então o gateway se perderia.
+        await this.orders.saveEntity(savedOrder);
         await this.markOrderPaid(savedOrder, null);
         return {
           orderId: order.id,
@@ -303,6 +369,9 @@ export class PaymentsService {
         savedOrder.asaasCustomerId = asaasCustomerId;
         savedOrder.asaasPaymentId = payment.id;
         if (this.isPaid(payment.status, payment.billingType)) {
+          // Persistir antes: commitOrder recarrega o pedido do banco e
+          // perderia gateway/asaasCustomerId, impedindo o estorno depois.
+          await this.orders.saveEntity(savedOrder);
           await this.markOrderPaid(savedOrder, payment.id);
         } else if (this.isCanceled(payment.status)) {
           await this.orders.saveEntity(savedOrder);
@@ -339,7 +408,10 @@ export class PaymentsService {
         };
       }
 
-      if (!this.isPaid(payment.status, payment.billingType)) {
+      if (
+        !this.isPaid(payment.status, payment.billingType) &&
+        !this.isCanceled(payment.status)
+      ) {
         await this.email.sendOrderCreated(order);
       }
       return {
@@ -507,6 +579,16 @@ export class PaymentsService {
         return { ok: true };
       }
       await this.markOrderPaid(orderRow, paymentId);
+      return { ok: true };
+    }
+    if (
+      (event === 'PAYMENT_REFUNDED' || status === 'REFUNDED') &&
+      orderRow.status === 'canceled' &&
+      orderRow.paymentStatus === 'refund_pending'
+    ) {
+      // Conclui um estorno que o Asaas aceitou como pendente no cancelamento.
+      // Um pedido ainda pago não é cancelado aqui: isso é decisão do gerente.
+      await this.inventory.markRefunded(orderRow.id);
       return { ok: true };
     }
     if (
@@ -785,11 +867,14 @@ export class PaymentsService {
   ) {
     if (order.paymentStatus === 'refunded') return;
     if (!(await this.inventory.claimStockConflictRefund(order.id))) return;
+    // Capturado antes de liberar o crédito, que zera storeCreditAmount.
+    const storeCredit = Number(order.storeCreditAmount) || 0;
     if (order.storeCreditCode && order.storeCreditAmount > 0) {
       await this.orders.releaseStoreCredit(order);
     }
     if (order.gateway === 'store_credit') {
       await this.inventory.markRefunded(order.id);
+      await this.notifyStockConflictRefund(order.id, 0, storeCredit);
       return;
     }
     if (order.gateway !== 'asaas' || !order.asaasPaymentId) {
@@ -815,12 +900,39 @@ export class PaymentsService {
         return;
       }
       await this.inventory.markRefunded(order.id);
+      await this.notifyStockConflictRefund(
+        order.id,
+        Number(data?.value) || Number(order.total),
+        storeCredit,
+      );
     } catch (error) {
       this.logger.error(
         `Falha no estorno automático do pedido ${order.number}.`,
         error,
       );
       await this.inventory.releaseStockConflictRefundClaim(order.id);
+    }
+  }
+
+  private async notifyStockConflictRefund(
+    orderId: string,
+    amount: number,
+    storeCredit: number,
+  ) {
+    // Falhas aqui não podem cair no catch do estorno, que liberaria a
+    // reivindicação e permitiria um segundo estorno.
+    try {
+      const row = await this.orders.findEntity(orderId);
+      if (!row) return;
+      await this.email.sendStockConflictRefund(
+        { ...this.orders.toRecord(row), storeCreditAmount: storeCredit },
+        { amount, storeCredit, pending: false },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Falha ao avisar o cliente do estorno do pedido ${orderId}.`,
+        error,
+      );
     }
   }
 

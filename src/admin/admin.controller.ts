@@ -1,4 +1,11 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiForbiddenResponse, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { ManagerGuard } from '../auth/guards/manager.guard';
@@ -15,5 +22,11 @@ export class AdminController {
   @Get('customers')
   customers() {
     return this.admin.customers();
+  }
+
+  @Delete('customers/:uid')
+  async deleteCustomer(@Param('uid', ParseUUIDPipe) uid: string) {
+    await this.admin.deleteCustomer(uid);
+    return { deleted: true };
   }
 }

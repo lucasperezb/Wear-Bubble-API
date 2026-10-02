@@ -31,10 +31,12 @@ describe('PaymentsService.cancelOrder', () => {
   let inventory: {
     restockCanceledOrder: jest.Mock;
   };
+  let email: { sendOrderCanceled: jest.Mock };
   let service: PaymentsService;
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    global.fetch = jest.fn();
     orders = {
       findEntity: jest.fn().mockResolvedValue({ ...orderRow }),
       toRecord: jest
@@ -46,6 +48,7 @@ describe('PaymentsService.cancelOrder', () => {
     inventory = {
       restockCanceledOrder: jest.fn().mockResolvedValue(undefined),
     };
+    email = { sendOrderCanceled: jest.fn().mockResolvedValue(undefined) };
     service = new PaymentsService(
       {
         asaasApiKey: '$aact_hmlg_test',
@@ -55,13 +58,15 @@ describe('PaymentsService.cancelOrder', () => {
       } as never,
       orders as never,
       inventory as never,
+      email as never,
       {} as never,
       {} as never,
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
-      {} as never,
+      {
+        withLock: (_key: string, fn: () => Promise<unknown>) => fn(),
+      } as never,
     );
   });
 
@@ -97,6 +102,10 @@ describe('PaymentsService.cancelOrder', () => {
       true,
     );
     expect(orders.releaseStoreCredit).toHaveBeenCalled();
+    expect(email.sendOrderCanceled).toHaveBeenCalledWith(
+      expect.objectContaining({ number: orderRow.number }),
+      { amount: 49.9, storeCredit: 0, pending: false },
+    );
     expect(result.cancellation).toEqual(
       expect.objectContaining({
         responseStatus: 200,
@@ -121,5 +130,25 @@ describe('PaymentsService.cancelOrder', () => {
     );
     expect(inventory.restockCanceledOrder).not.toHaveBeenCalled();
     expect(orders.saveEntity).not.toHaveBeenCalled();
+    expect(email.sendOrderCanceled).not.toHaveBeenCalled();
+  });
+  it('cancels with a manual refund without calling Asaas', async () => {
+    jest.spyOn(global, 'fetch');
+
+    const result = await service.cancelOrder(orderRow.id, {
+      refundedExternally: true,
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(inventory.restockCanceledOrder).toHaveBeenCalledWith(
+      orderRow.id,
+      false,
+    );
+    expect(orders.releaseStoreCredit).toHaveBeenCalled();
+    expect(email.sendOrderCanceled).toHaveBeenCalledWith(
+      expect.objectContaining({ number: orderRow.number }),
+      { amount: 49.9, storeCredit: 0, pending: true },
+    );
+    expect(result.order.status).toBe('canceled');
   });
 });

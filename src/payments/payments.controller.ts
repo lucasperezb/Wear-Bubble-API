@@ -18,6 +18,7 @@ import { ApiAuth } from '../auth/decorators/api-auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ManagerGuard } from '../auth/guards/manager.guard';
+import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { PaymentWebhookDto } from './dto/payment-webhook.dto';
 import { PaymentsService } from './payments.service';
@@ -51,8 +52,13 @@ export class PaymentsController {
   @UseGuards(ManagerGuard)
   @ApiAuth()
   @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
-  cancelOrder(@Param('orderId', ParseUUIDPipe) orderId: string) {
-    return this.payments.cancelOrder(orderId);
+  cancelOrder(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() dto: CancelOrderDto,
+  ) {
+    return this.payments.cancelOrder(orderId, {
+      refundedExternally: dto?.refundedExternally === true,
+    });
   }
 
   @Post('webhook/asaas')

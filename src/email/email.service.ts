@@ -22,6 +22,12 @@ type EmailMessage = {
   }>;
 };
 
+export type RefundSummary = {
+  amount: number;
+  storeCredit: number;
+  pending: boolean;
+};
+
 @Injectable()
 export class EmailService implements OnModuleInit {
   private readonly transporter?: Transporter;
@@ -149,6 +155,47 @@ export class EmailService implements OnModuleInit {
     });
   }
 
+  async sendOrderCanceled(order: OrderRecord, refund: RefundSummary) {
+    if (!order.delivery?.email) return;
+    await this.safeSend({
+      to: order.delivery.email,
+      name: order.delivery.name,
+      subject: `Pedido cancelado · ${order.number}`,
+      content: this.layout(
+        'Pedido cancelado',
+        `${this.greeting(order)}
+         <p>Por conta de uma inconsistência entre os dados do pagamento e as informações do seu cadastro, a sua compra <strong>${this.escape(order.number)}</strong> foi cancelada.</p>
+         <p>A verificação foi realizada pela nossa equipe de compliance, com base na política de segurança da Wear Bubble, que existe para proteger você e a sua forma de pagamento.</p>
+         ${this.refundBlock(refund)}
+         ${this.orderDetails(order)}
+         ${this.nextStep('Confira se os seus dados em Minha Conta estão corretos e, se quiser, faça um novo pedido. Em caso de dúvidas, é só responder este e-mail que nossa equipe ajuda você.')}
+         ${this.accountButton('Revisar meus dados')}`,
+      ),
+      tag: 'order-canceled',
+      idempotencyKey: `order-canceled-${order.id}`,
+    });
+  }
+
+  async sendStockConflictRefund(order: OrderRecord, refund: RefundSummary) {
+    if (!order.delivery?.email) return;
+    await this.safeSend({
+      to: order.delivery.email,
+      name: order.delivery.name,
+      subject: `Pedido cancelado por falta de estoque · ${order.number}`,
+      content: this.layout(
+        'Pedido cancelado',
+        `${this.greeting(order)}
+         <p>Infelizmente, uma ou mais peças do pedido <strong>${this.escape(order.number)}</strong> esgotaram enquanto o seu pagamento era processado, e não conseguimos garantir a separação. Por isso, a compra foi cancelada automaticamente.</p>
+         <p>Pedimos desculpas pelo transtorno.</p>
+         ${this.refundBlock(refund)}
+         ${this.orderDetails(order)}
+         ${this.nextStep('Confira em nosso site se a peça voltou ao estoque ou escolha outro modelo. Em caso de dúvidas, é só responder este e-mail que nossa equipe ajuda você.')}`,
+      ),
+      tag: 'stock-conflict-refund',
+      idempotencyKey: `stock-conflict-refund-${order.id}`,
+    });
+  }
+
   async sendShippingUpdate(order: OrderRecord) {
     if (!order.delivery?.email) return;
     const status = this.shippingStatus(order.shipStage);
@@ -270,6 +317,10 @@ export class EmailService implements OnModuleInit {
     try {
       const result = await this.transporter.sendMail({
         from: {
+          address: this.config.smtpFromEmail,
+          name: this.config.smtpFromName,
+        },
+        replyTo: {
           address: this.config.smtpFromEmail,
           name: this.config.smtpFromName,
         },
@@ -458,6 +509,19 @@ export class EmailService implements OnModuleInit {
     return statuses[Math.max(0, Math.min(5, Number(stage) || 0))];
   }
 
+  private refundBlock(refund: RefundSummary) {
+    const lines = [
+      refund.amount > 0
+        ? `O valor de <strong>${this.money(refund.amount)}</strong> ${refund.pending ? 'teve o estorno solicitado' : 'foi estornado'} para a mesma forma de pagamento usada na compra. O prazo para o valor aparecer na sua conta ou fatura é definido pela operadora de pagamento.`
+        : '',
+      refund.storeCredit > 0
+        ? `O crédito de <strong>${this.money(refund.storeCredit)}</strong> usado nesta compra voltou para a sua conta Wear Bubble.`
+        : '',
+    ].filter(Boolean);
+    if (!lines.length) return '';
+    return `<div style="margin:22px 0;border-left:4px solid #c94e82;background:#f9f5ec;padding:14px 16px"><strong>Reembolso</strong><br>${lines.join('<br><br>')}</div>`;
+  }
+
   private trackingBlock(tracking: string) {
     return `<div style="margin:22px 0;background:#171410;color:#ffffff;padding:18px;text-align:center">
       <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#f0b9cd">Código de rastreio</div>
@@ -476,9 +540,9 @@ export class EmailService implements OnModuleInit {
       : '';
   }
 
-  private accountButton() {
+  private accountButton(label = 'Acompanhar meu pedido') {
     const url = `${this.config.storeUrl.replace(/\/$/, '')}/conta`;
-    return `<p style="margin:28px 0 4px;text-align:center"><a href="${this.escape(url)}" style="display:inline-block;background:#171410;color:#ffffff;padding:14px 22px;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase">Acompanhar meu pedido</a></p>`;
+    return `<p style="margin:28px 0 4px;text-align:center"><a href="${this.escape(url)}" style="display:inline-block;background:#171410;color:#ffffff;padding:14px 22px;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase">${this.escape(label)}</a></p>`;
   }
 
   private paymentMethod(method: string) {
@@ -515,8 +579,6 @@ export class EmailService implements OnModuleInit {
         </body>
       </html>`;
   }
-
-
 
   private money(value: number) {
     return new Intl.NumberFormat('pt-BR', {
