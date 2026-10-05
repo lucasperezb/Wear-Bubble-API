@@ -194,8 +194,14 @@ rastreio da logística reversa, registra recebimento e inspeção e conclui por
 `POST /api/returns/:id/resolve`. Devoluções usam estorno parcial do Asaas quando
 há valor pago pelo gateway. Trocas geram um Crédito Wear Bubble nominal, com
 saldo parcial e validade de 180 dias. O frete grátis segue a regra geral da loja:
-valor dos produtos após promoções, conjuntos e cupons a partir de R$ 199. O
-desconto de pagamento via Pix não reduz essa base.
+valor dos produtos após promoções, conjuntos e cupons a partir de R$ 299
+(`FREE_SHIPPING_MINIMUM`). O desconto de pagamento via Pix não reduz essa base.
+Entre `FREE_SHIPPING_PROMO_STARTS_AT` e `FREE_SHIPPING_PROMO_ENDS_AT` (padrão:
+outubro de 2026, horário de Brasília) o frete é grátis em qualquer valor; fora
+desse período a regra acima volta sozinha. O front usa as mesmas datas em
+`NEXT_PUBLIC_FREE_SHIPPING_PROMO_*` e envia `expectedFreeShipping` no checkout:
+se a sacola mostrava frete grátis e a campanha acabou nesse meio-tempo, a API
+recusa o pedido antes de criá-lo, em vez de cobrar um frete que não foi exibido.
 Se o crédito cobrir todo o pedido, nenhuma cobrança é criada no Asaas.
 
 A geração automática da autorização de postagem pelo Melhor Envio ainda depende

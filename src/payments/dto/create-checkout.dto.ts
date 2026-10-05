@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsNotEmpty,
@@ -148,6 +149,15 @@ export class CreateCheckoutDto {
   @IsString()
   @MaxLength(3000)
   shippingQuoteToken?: string;
+
+  /**
+   * true quando a sacola exibiu frete grátis. Se o frete deixou de ser
+   * grátis (ex.: virada do fim da campanha), o pedido é recusado antes de
+   * ser criado, para o cliente nunca pagar um frete que não viu.
+   */
+  @IsOptional()
+  @IsBoolean()
+  expectedFreeShipping?: boolean;
 
   @IsOptional()
   @ValidateNested()

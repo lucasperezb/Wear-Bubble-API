@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -61,4 +62,13 @@ export class CreateOrderDto {
   @IsString()
   @MaxLength(40)
   creditCode?: string | null;
+
+  /**
+   * true quando a sacola exibiu frete grátis. Se o frete deixou de ser
+   * grátis (ex.: virada do fim da campanha), o pedido é recusado antes de
+   * ser criado, para o cliente nunca pagar um frete que não viu.
+   */
+  @IsOptional()
+  @IsBoolean()
+  expectedFreeShipping?: boolean;
 }

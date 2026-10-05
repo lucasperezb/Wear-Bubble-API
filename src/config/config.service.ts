@@ -65,8 +65,39 @@ export class AppConfigService {
     );
   }
 
+  /** Valor mínimo fora de campanha. Aceita 0 (frete grátis sempre). */
+  get freeShippingBaseMinimum() {
+    const raw = this.config.get<string>('FREE_SHIPPING_MINIMUM');
+    const value = raw === undefined || raw === '' ? 299 : Number(raw);
+    return Number.isFinite(value) ? Math.max(0, value) : 299;
+  }
+
+  /**
+   * Campanha de frete grátis em qualquer valor. Padrão: outubro de 2026 no
+   * horário de Brasília. Fora do período volta sozinha ao mínimo normal.
+   */
+  get freeShippingPromo() {
+    const date = (key: string, fallback: string) => {
+      const raw = this.config.get<string>(key)?.trim();
+      const parsed = raw ? Date.parse(raw) : NaN;
+      return new Date(Number.isNaN(parsed) ? Date.parse(fallback) : parsed);
+    };
+    return {
+      startsAt: date(
+        'FREE_SHIPPING_PROMO_STARTS_AT',
+        '2026-10-01T00:00:00-03:00',
+      ),
+      endsAt: date('FREE_SHIPPING_PROMO_ENDS_AT', '2026-10-31T23:59:59-03:00'),
+    };
+  }
+
+  freeShippingPromoActive(now = new Date()) {
+    const { startsAt, endsAt } = this.freeShippingPromo;
+    return now >= startsAt && now <= endsAt;
+  }
+
   get freeShippingMinimum() {
-    return Math.max(0, Number(this.config.get('FREE_SHIPPING_MINIMUM')) || 299);
+    return this.freeShippingPromoActive() ? 0 : this.freeShippingBaseMinimum;
   }
 
   get supabaseUrl() {

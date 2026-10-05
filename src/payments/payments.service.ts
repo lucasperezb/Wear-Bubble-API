@@ -304,6 +304,7 @@ export class PaymentsService {
         items,
         method,
         coupon: dto.coupon,
+        expectedFreeShipping: dto.expectedFreeShipping,
       },
       customer.delivery,
       shipping,

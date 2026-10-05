@@ -210,6 +210,13 @@ export class OrdersService {
       freeShippingSubtotal >= this.config.freeShippingMinimum
         ? 0
         : Math.max(0, Number(shipping?.price) || 0);
+    if (dto.expectedFreeShipping === true && shippingPrice > 0) {
+      // Nada foi persistido ainda (número, crédito, estoque): recusar aqui é
+      // seguro e evita cobrar um frete que a sacola mostrava como grátis.
+      throw new BadRequestException(
+        'A promoção de frete grátis terminou e o frete deste pedido foi recalculado. Revise o valor e confirme novamente.',
+      );
+    }
     const beforeCredit = Math.round((productTotal + shippingPrice) * 100) / 100;
     const orderNumber = await this.nextOrderNumber();
     const reservedCredit =
