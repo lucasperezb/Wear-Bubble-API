@@ -29,6 +29,8 @@ import { PromotionSettingsEntity } from '../promotions/entities/promotion-settin
 import { InventoryReservationEntity } from '../inventory/entities/inventory-reservation.entity';
 import { InventoryMovementEntity } from '../inventory/entities/inventory-movement.entity';
 import { StoreCreditAllocationEntity } from '../credits/entities/store-credit-allocation.entity';
+import { EmailSendLogEntity } from '../email/entities/email-send-log.entity';
+import { CardAttemptEntity } from '../fraud/entities/card-attempt.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
@@ -87,6 +89,8 @@ const ormconfig: DataSourceOptions = {
     ReturnEventEntity,
     StoreCreditEntity,
     StoreCreditAllocationEntity,
+    EmailSendLogEntity,
+    CardAttemptEntity,
     HeroConfigEntity,
     HeroSlideEntity,
     PromotionSettingsEntity,

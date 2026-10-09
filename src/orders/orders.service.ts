@@ -405,12 +405,31 @@ export class OrdersService {
     return this.toRecord(row);
   }
 
+  /** Gerente conferiu o alerta de segurança: libera etiqueta e envio. */
+  async clearReview(id: string) {
+    const row = await this.orders.findOneBy({ id });
+    if (!row) throw new NotFoundException('Pedido não encontrado.');
+    if (row.reviewStatus !== 'pending') return this.toRecord(row);
+    row.reviewStatus = 'cleared';
+    row.reviewedAt = new Date();
+    await this.orders.update(row.id, {
+      reviewStatus: row.reviewStatus,
+      reviewedAt: row.reviewedAt,
+    });
+    return this.toRecord(row);
+  }
+
   async updateShipStage(id: string, dto: UpdateShipStageDto) {
     const row = await this.orders.findOneBy({ id });
     if (!row) throw new NotFoundException('Pedido não encontrado.');
     if (row.status !== 'paid') {
       throw new BadRequestException(
         'Só é possível atualizar o envio de pedidos pagos.',
+      );
+    }
+    if (row.reviewStatus === 'pending' && dto.shipStage >= 2) {
+      throw new BadRequestException(
+        'Pedido em revisão de segurança. Confira o alerta e marque como revisado antes de preparar o envio.',
       );
     }
     const previousStage = row.shipStage;
@@ -488,6 +507,11 @@ export class OrdersService {
       inventoryStatus: row.inventoryStatus,
       paymentStatus: row.paymentStatus,
       stockConflictReason: row.stockConflictReason,
+      review: {
+        status: row.reviewStatus || 'none',
+        reasons: row.reviewReasons || [],
+        reviewedAt: row.reviewedAt ? row.reviewedAt.getTime() : null,
+      },
       shipStage: row.shipStage,
       delivery: {
         name: row.customerName,

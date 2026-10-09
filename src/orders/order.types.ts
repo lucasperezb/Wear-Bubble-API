@@ -65,6 +65,11 @@ export type OrderRecord = {
     | 'refunded'
     | 'failed';
   stockConflictReason?: string | null;
+  review?: {
+    status: 'none' | 'pending' | 'cleared';
+    reasons: string[];
+    reviewedAt: number | null;
+  };
   shipStage: number;
   delivery?: OrderDelivery;
   shipping?: OrderShipping;

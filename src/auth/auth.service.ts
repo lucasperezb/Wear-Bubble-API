@@ -23,6 +23,8 @@ import { UsersService } from '../users/users.service';
 import { UserRecord } from '../users/users.types';
 import { AuthTokenService } from './auth-token.service';
 import { EmailService } from '../email/email.service';
+import { EmailGuardService } from '../email/email-guard.service';
+import { EmailPolicyService } from '../email/email-policy.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RequestLoginCodeDto } from './dto/request-login-code.dto';
@@ -48,9 +50,11 @@ export class AuthService {
     private readonly loginCodes: Repository<LoginCodeEntity>,
     @InjectRepository(PasswordResetTokenEntity)
     private readonly passwordResetTokens: Repository<PasswordResetTokenEntity>,
+    private readonly emailGuard: EmailGuardService,
+    private readonly emailPolicy: EmailPolicyService,
   ) {}
 
-  async register(dto: RegisterDto, res: Response) {
+  async register(dto: RegisterDto, res: Response, ip = '') {
     const name = String(dto?.name || '').trim();
     const email = String(dto?.email || '')
       .trim()
@@ -61,6 +65,8 @@ export class AuthService {
       throw new BadRequestException(
         'Nome, e-mail e senha (mín. de 6 caracteres) são obrigatórios.',
       );
+    await this.emailGuard.assertIpAllowed(ip);
+    await this.emailPolicy.assertAcceptable(email);
     const existing = await this.users.findByEmail(email);
     if (existing && existing.emailVerified) {
       // Same response as a normal registration: never disclose whether an
@@ -111,11 +117,11 @@ export class AuthService {
         : Promise.resolve(),
     ]);
     this.tokens.clearCookie(res);
-    await this.issueLoginCode(user, 'verification');
+    await this.issueLoginCode(user, 'verification', ip);
     return { verificationRequired: true, email };
   }
 
-  async login(dto: LoginDto, res: Response) {
+  async login(dto: LoginDto, res: Response, ip = '') {
     const email = String(dto?.email || '')
       .trim()
       .toLowerCase();
@@ -125,7 +131,7 @@ export class AuthService {
       throw new UnauthorizedException('E-mail ou senha incorretos.');
     if (!user.emailVerified) {
       this.tokens.clearCookie(res);
-      await this.issueLoginCode(user, 'verification');
+      await this.issueLoginCode(user, 'verification', ip);
       return { verificationRequired: true, email: user.email };
     }
     const profile = await this.profiles.findOneBy({ uid: user.uid });
@@ -139,13 +145,15 @@ export class AuthService {
     };
   }
 
-  async requestLoginCode(dto: RequestLoginCodeDto) {
+  async requestLoginCode(dto: RequestLoginCodeDto, ip = '') {
     const email = this.normalizeEmail(dto.email);
+    await this.emailGuard.assertIpAllowed(ip);
     const user = await this.users.findByEmail(email);
     if (!user) return { ok: true, expiresIn: 600 };
     return this.issueLoginCode(
       user,
       user.emailVerified ? 'login' : 'verification',
+      ip,
     );
   }
 
@@ -200,9 +208,10 @@ export class AuthService {
     return { uid, email, role, name: profile?.name || '', emailVerified: true };
   }
 
-  async requestPasswordReset(emailValue: string) {
+  async requestPasswordReset(emailValue: string, ip = '') {
     const startedAt = Date.now();
     const email = this.normalizeEmail(emailValue);
+    await this.emailGuard.assertIpAllowed(ip);
     const response = {
       ok: true,
       message:
@@ -233,6 +242,10 @@ export class AuthService {
       !latest.usedAt &&
       Date.now() - latest.createdAt.getTime() < 60_000
     ) {
+      return finish();
+    }
+    // Acima do limite: mesma resposta genérica, só não envia.
+    if (!(await this.emailGuard.allow(user.email, ip, 'password-reset'))) {
       return finish();
     }
 
@@ -320,6 +333,7 @@ export class AuthService {
   private async issueLoginCode(
     user: UserEntity,
     purpose: 'login' | 'verification',
+    ip = '',
   ) {
     const latest = await this.loginCodes.findOne({
       where: { userUid: user.uid },
@@ -330,6 +344,11 @@ export class AuthService {
       Date.now() - latest.createdAt.getTime() < 60_000 &&
       !latest.usedAt
     ) {
+      return { ok: true, expiresIn: 600 };
+    }
+    // Acima do limite: responde igual, sem enviar (não revela nada).
+    const purposeTag = purpose === 'login' ? 'login-code' : 'verification';
+    if (!(await this.emailGuard.allow(user.email, ip, purposeTag))) {
       return { ok: true, expiresIn: 600 };
     }
 

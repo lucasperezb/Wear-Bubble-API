@@ -34,6 +34,11 @@ describe('AuthService password reset', () => {
       {} as never,
       {} as never,
       passwordResetTokens as never,
+      {
+        assertIpAllowed: jest.fn().mockResolvedValue(undefined),
+        allow: jest.fn().mockResolvedValue(true),
+      } as never,
+      { assertAcceptable: jest.fn().mockResolvedValue(undefined) } as never,
     );
     return { service, emailSender, users, passwordResetTokens };
   }

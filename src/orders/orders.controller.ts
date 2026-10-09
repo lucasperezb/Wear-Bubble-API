@@ -58,6 +58,14 @@ export class OrdersController {
     return this.orders.updateAddress(id, dto);
   }
 
+  @Patch(':id/review')
+  @UseGuards(ManagerGuard)
+  @ApiAuth()
+  @ApiForbiddenResponse({ description: 'Acesso restrito ao gerente.' })
+  clearReview(@Param('id', ParseUUIDPipe) id: string) {
+    return this.orders.clearReview(id);
+  }
+
   @Patch(':id/ship-stage')
   @UseGuards(ManagerGuard)
   @ApiAuth()

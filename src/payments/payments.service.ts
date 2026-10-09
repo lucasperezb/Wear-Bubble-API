@@ -15,9 +15,11 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { AppConfigService } from '../config/config.service';
 import { AdvisoryLockService } from '../persistence/advisory-lock.service';
 import { EmailService } from '../email/email.service';
+import { EmailGuardService } from '../email/email-guard.service';
+import { EmailPolicyService } from '../email/email-policy.service';
+import { FraudService } from '../fraud/fraud.service';
 import { MelhorEnvioService } from '../integrations/melhor-envio/melhor-envio.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { SaleNotifierService } from '../notifications/sale-notifier.service';
 import { OrderDelivery, OrderRecord } from '../orders/order.types';
 import { OrdersService } from '../orders/orders.service';
 import { UsersService } from '../users/users.service';
@@ -53,8 +55,10 @@ export class PaymentsService {
     private readonly addresses: Repository<AddressEntity>,
     private readonly users: UsersService,
     private readonly melhorEnvio: MelhorEnvioService,
-    private readonly saleNotifier: SaleNotifierService,
     private readonly locks: AdvisoryLockService,
+    private readonly fraud: FraudService,
+    private readonly emailGuard: EmailGuardService,
+    private readonly emailPolicy: EmailPolicyService,
   ) {}
 
   async status(orderId: string) {
@@ -349,6 +353,16 @@ export class PaymentsService {
       });
       const payment = (await this.readJson(response)) as AsaasPayment &
         Record<string, any>;
+      if (method !== 'Pix') {
+        await this.fraud.recordCardAttempt({
+          customerUid: customer.uid,
+          email: customer.delivery.email,
+          taxId: customer.delivery.taxId,
+          card: dto.card,
+          approved: response.ok && !this.isCanceled(payment.status),
+          ip: remoteIp,
+        });
+      }
       if (!response.ok) {
         throw new ServiceUnavailableException(
           this.asaasError(
@@ -393,7 +407,7 @@ export class PaymentsService {
             this.asaasError(qrCode, 'Asaas não retornou o código Pix.'),
           );
         }
-        await this.email.sendOrderCreated(order);
+        await this.sendOrderCreated(order, user, remoteIp);
         return {
           orderId: order.id,
           number: order.number,
@@ -413,7 +427,7 @@ export class PaymentsService {
         !this.isPaid(payment.status, payment.billingType) &&
         !this.isCanceled(payment.status)
       ) {
-        await this.email.sendOrderCreated(order);
+        await this.sendOrderCreated(order, user, remoteIp);
       }
       return {
         orderId: order.id,
@@ -518,6 +532,14 @@ export class PaymentsService {
     });
     const payment = (await this.readJson(response)) as AsaasPayment &
       Record<string, any>;
+    await this.fraud.recordCardAttempt({
+      customerUid: orderRow.customerUid,
+      email: order.delivery.email,
+      taxId: order.delivery.taxId,
+      card: dto.card,
+      approved: response.ok && !this.isCanceled(payment.status),
+      ip: remoteIp,
+    });
     if (!response.ok) {
       throw new ServiceUnavailableException(
         this.asaasError(
@@ -738,6 +760,7 @@ export class PaymentsService {
       );
     }
     const delivery = this.normalizeDelivery(input);
+    await this.emailPolicy.assertAcceptable(delivery.email);
     let user = await this.users.findByEmail(delivery.email);
     if (user && user.emailVerified) {
       throw new BadRequestException(
@@ -842,6 +865,26 @@ export class PaymentsService {
     return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
   }
 
+  /**
+   * "Pedido recebido". Para compras sem conta o envio passa pelo limite por
+   * destinatário/IP, sem nunca barrar a compra em si.
+   */
+  private async sendOrderCreated(
+    order: OrderRecord,
+    user: AuthenticatedUser | undefined,
+    remoteIp: string,
+  ) {
+    const email = order.delivery?.email;
+    if (!email) return;
+    if (
+      !user &&
+      !(await this.emailGuard.allow(email, remoteIp, 'order-created'))
+    ) {
+      return;
+    }
+    await this.email.sendOrderCreated(order);
+  }
+
   private async markOrderPaid(
     orderRow: import('../orders/entities/order.entity').OrderEntity,
     paymentId: string | null,
@@ -857,9 +900,10 @@ export class PaymentsService {
       await this.refundStockConflict(result.order);
       return false;
     }
+    // Marca o pedido para revisão antes de o painel e o e-mail o exibirem.
+    await this.fraud.evaluatePaidOrder(result.order);
     const record = this.orders.toRecord(result.order);
     await this.email.sendPaymentConfirmed(record);
-    void this.saleNotifier.notifySale(record);
     return true;
   }
 

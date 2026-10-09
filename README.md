@@ -208,6 +208,28 @@ A geração automática da autorização de postagem pelo Melhor Envio ainda dep
 do endereço operacional completo de origem/devolução. Até essa configuração, o
 código de postagem e o rastreio são registrados pelo gerente no painel.
 
+## Proteção contra contas e compras fraudulentas
+
+- **E-mails descartáveis** (`src/email/email-policy.service.ts`): cadastro e
+  checkout sem conta recusam domínios temporários (lista do pacote
+  `disposable-email-domains`) e domínios sem registro de e-mail no DNS. Se o
+  DNS do servidor não responder, consulta 8.8.8.8 e 1.1.1.1; sem resposta de
+  nenhum, deixa passar.
+- **Limite de e-mails** (`src/email/email-guard.service.ts`, tabela
+  `email_send_log`, 2 dias): no máximo 5 e-mails por hora e 15 por dia para o
+  mesmo endereço (acima disso o envio é pulado em silêncio) e 429 para um IP
+  que já disparou e-mail para 10 endereços na última hora. Vale para códigos
+  de login/cadastro, redefinição de senha e "pedido recebido" sem conta.
+- **Revisão de pedidos** (`src/fraud/`, tabela `card_attempts`, 90 dias): toda
+  tentativa com cartão é registrada (só 4 últimos dígitos + validade). Um
+  pedido pago vai para revisão (`orders.review_status = 'pending'`) quando o
+  CPF aparece em 2+ contas, há 3+ cartões diferentes em 30 dias ou 3+ recusas
+  em 24h. Em revisão, etiqueta e etapas de envio ficam bloqueadas até o
+  gerente usar `PATCH /api/orders/:id/review`.
+
+Os limites estão em `EMAIL_LIMITS` e `FRAUD_RULES`. O IP vem de `req.ip`, que
+depende de `trust proxy` (1 proxy) refletir a infraestrutura real.
+
 ## Qualidade
 
 ```bash

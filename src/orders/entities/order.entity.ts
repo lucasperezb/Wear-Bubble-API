@@ -227,6 +227,21 @@ export class OrderEntity extends TimestampedEntity {
   @Column({ name: 'stock_conflict_reason', type: 'text', nullable: true })
   stockConflictReason: string | null;
 
+  /** Revisão de segurança: 'pending' bloqueia etiqueta e envio. */
+  @Column({
+    name: 'review_status',
+    type: 'varchar',
+    length: 20,
+    default: 'none',
+  })
+  reviewStatus: 'none' | 'pending' | 'cleared';
+
+  @Column({ name: 'review_reasons', type: 'jsonb', default: () => "'[]'" })
+  reviewReasons: string[];
+
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
   @Column({ name: 'refund_requested_at', type: 'timestamptz', nullable: true })
   refundRequestedAt: Date | null;
 

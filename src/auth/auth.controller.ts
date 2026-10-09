@@ -1,7 +1,15 @@
-import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { ApiAuth } from './decorators/api-auth.decorator';
 import { AuthGuard } from './guards/auth.guard';
@@ -24,20 +32,25 @@ export class AuthController {
   register(
     @Body() dto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
   ) {
-    return this.auth.register(dto, res);
+    return this.auth.register(dto, res, clientIp(req));
   }
 
   @Post('login')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    return this.auth.login(dto, res);
+  login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
+  ) {
+    return this.auth.login(dto, res, clientIp(req));
   }
 
   @Post('code/request')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  requestLoginCode(@Body() dto: RequestLoginCodeDto) {
-    return this.auth.requestLoginCode(dto);
+  requestLoginCode(@Body() dto: RequestLoginCodeDto, @Req() req: Request) {
+    return this.auth.requestLoginCode(dto, clientIp(req));
   }
 
   @Post('code/verify')
@@ -68,8 +81,8 @@ export class AuthController {
 
   @Post('password-reset')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  passwordReset(@Body() dto: PasswordResetDto) {
-    return this.auth.requestPasswordReset(dto.email);
+  passwordReset(@Body() dto: PasswordResetDto, @Req() req: Request) {
+    return this.auth.requestPasswordReset(dto.email, clientIp(req));
   }
 
   @Post('password-reset/confirm')
@@ -77,4 +90,9 @@ export class AuthController {
   confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) {
     return this.auth.confirmPasswordReset(dto.token, dto.password);
   }
+}
+
+/** IP do visitante (o Express já considera o proxy via `trust proxy`). */
+function clientIp(req: Request) {
+  return req.ip || req.socket.remoteAddress || '';
 }

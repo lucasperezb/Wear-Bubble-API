@@ -145,19 +145,6 @@ export class AppConfigService {
     return (this.config.get<string>('SMTP_FROM_EMAIL') || this.smtpUser).trim();
   }
 
-  /** Bot do Telegram que avisa a equipe sobre novas vendas. */
-  get telegramBotToken() {
-    return this.config.get<string>('TELEGRAM_BOT_TOKEN')?.trim() || '';
-  }
-
-  /** Um ou mais chats (separados por vírgula) que recebem o aviso de venda. */
-  get telegramChatIds() {
-    return (this.config.get<string>('TELEGRAM_CHAT_ID') || '')
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean);
-  }
-
   get smtpFromName() {
     return this.config.get<string>('SMTP_FROM_NAME') || 'Wear Bubble';
   }

@@ -275,6 +275,11 @@ export class MelhorEnvioService {
         'A etiqueta só pode ser gerada após a confirmação do pagamento.',
       );
     }
+    if (order.reviewStatus === 'pending') {
+      throw new BadRequestException(
+        'Pedido em revisão de segurança. Confira o alerta e marque como revisado antes de preparar o envio.',
+      );
+    }
     if (
       !order.shippingServiceId ||
       !this.isAllowedService(order.shippingServiceId)

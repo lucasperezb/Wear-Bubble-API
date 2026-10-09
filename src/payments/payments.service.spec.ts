@@ -63,10 +63,12 @@ describe('PaymentsService.cancelOrder', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       {
         withLock: (_key: string, fn: () => Promise<unknown>) => fn(),
       } as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
   });
 
