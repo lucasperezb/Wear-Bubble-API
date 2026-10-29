@@ -31,6 +31,7 @@ import { InventoryMovementEntity } from '../inventory/entities/inventory-movemen
 import { StoreCreditAllocationEntity } from '../credits/entities/store-credit-allocation.entity';
 import { EmailSendLogEntity } from '../email/entities/email-send-log.entity';
 import { CardAttemptEntity } from '../fraud/entities/card-attempt.entity';
+import { HomeLayoutEntity } from '../home-layout/entities/home-layout.entity';
 
 const booleanEnv = (value: string | undefined, fallback: boolean) =>
   value === undefined ? fallback : value === 'true';
@@ -91,6 +92,7 @@ const ormconfig: DataSourceOptions = {
     StoreCreditAllocationEntity,
     EmailSendLogEntity,
     CardAttemptEntity,
+    HomeLayoutEntity,
     HeroConfigEntity,
     HeroSlideEntity,
     PromotionSettingsEntity,

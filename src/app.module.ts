@@ -19,6 +19,7 @@ import { ReturnsModule } from './returns/returns.module';
 import { CreditsModule } from './credits/credits.module';
 import { HeroModule } from './hero/hero.module';
 import { PromotionsModule } from './promotions/promotions.module';
+import { HomeLayoutModule } from './home-layout/home-layout.module';
 import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { InventoryModule } from './inventory/inventory.module';
     CreditsModule,
     HeroModule,
     PromotionsModule,
+    HomeLayoutModule,
     InventoryModule,
     AdminModule,
   ],

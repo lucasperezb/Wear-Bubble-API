@@ -208,6 +208,23 @@ A geração automática da autorização de postagem pelo Melhor Envio ainda dep
 do endereço operacional completo de origem/devolução. Até essa configuração, o
 código de postagem e o rastreio são registrados pelo gerente no painel.
 
+## Layout da página inicial
+
+O painel (Vitrines do site) escolhe qual layout da página inicial está no ar
+e as peças de cada um. `GET /api/home-layout` é público e devolve
+`{ active: 'padrao' | 'fizz', fizz: {...} }`; `PATCH /api/home-layout`
+(somente gerente) salva as peças do layout de verão (`fizz`) e/ou publica um
+layout (`active`). Salvar peças sem `active` não muda o que está no ar.
+
+- **Padrão**: peças nas vitrines `hero` e `home` (`/api/products/showcases`).
+- **Coleção Fizz · Verão**: tabela `home_layout_settings` (linha única):
+  peça e cor do card grande do hero, peça ao lado, até 10 peças de "As
+  novidades" (na ordem escolhida) e as 3 fotos de "A coleção" (peça, cor,
+  posição na galeria e legenda). Peças inexistentes são recusadas.
+
+Publicar o layout de verão liga o tema de verão no site inteiro. A migration
+começa no layout padrão.
+
 ## Proteção contra contas e compras fraudulentas
 
 - **E-mails descartáveis** (`src/email/email-policy.service.ts`): cadastro e
