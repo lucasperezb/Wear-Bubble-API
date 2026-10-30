@@ -472,6 +472,9 @@ export class InventoryService implements OnModuleInit, OnModuleDestroy {
       ? await manager
           .getRepository(ProductEntity)
           .createQueryBuilder('product')
+          // Pedidos criados antes da exclusão lógica ainda precisam confirmar,
+          // cancelar ou devolver o estoque usando o produto histórico.
+          .withDeleted()
           .where({ id: In(productIds) })
           .orderBy('product.id', 'ASC')
           .setLock('pessimistic_write')

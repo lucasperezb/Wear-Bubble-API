@@ -1,6 +1,7 @@
 import {
   Check,
   Column,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -73,6 +74,9 @@ export class ProductEntity extends TimestampedEntity {
 
   @Column({ type: 'boolean', default: true })
   active: boolean;
+
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 
   @Column({ type: 'text', array: true, default: '{}' })
   sizes: string[];

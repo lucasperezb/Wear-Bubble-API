@@ -48,7 +48,7 @@ export class ProductsService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    if (await this.products.count()) return;
+    if (await this.products.count({ withDeleted: true })) return;
     for (const data of seedProducts)
       await this.products.save(this.createEntity({ ...data, pair: 0 }));
     for (const data of seedProducts)
@@ -164,7 +164,9 @@ export class ProductsService implements OnModuleInit {
   }
 
   async create(dto: CreateProductDto) {
-    const existing = await this.products.find();
+    // IDs de produtos excluídos continuam no banco para preservar o histórico
+    // de pedidos e estoque, portanto não podem ser reutilizados.
+    const existing = await this.products.find({ withDeleted: true });
     const ids = existing.map((product) => product.id);
     const colors = Array.isArray(dto.colors) ? dto.colors : [];
     const variantStock = this.variantStock(colors);
@@ -357,11 +359,10 @@ export class ProductsService implements OnModuleInit {
   }
 
   async remove(id: number) {
-    const paths = (
-      await this.images.find({ where: { productId: id } })
-    ).flatMap((image) => (image.storagePath ? [image.storagePath] : []));
-    const result = await this.products.delete({ id });
-    await this.imageStorage.remove(paths);
+    // A exclusão é lógica porque reservas e movimentos de estoque mantêm uma
+    // referência ao produto. Assim ele some da loja e do painel sem quebrar o
+    // histórico nem apagar imagens que podem ser necessárias em uma restauração.
+    const result = await this.products.softDelete({ id });
     return { removed: result.affected || 0 };
   }
 
