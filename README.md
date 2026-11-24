@@ -212,7 +212,7 @@ código de postagem e o rastreio são registrados pelo gerente no painel.
 
 O painel (Vitrines do site) escolhe qual layout da página inicial está no ar
 e as peças de cada um. `GET /api/home-layout` é público e devolve
-`{ active: 'padrao' | 'fizz', fizz: {...} }`; `PATCH /api/home-layout`
+`{ active: 'padrao' | 'fizz' | 'blackfriday', previous, fizz: {...}, blackFriday: {...} }`; `PATCH /api/home-layout`
 (somente gerente) salva as peças do layout de verão (`fizz`) e/ou publica um
 layout (`active`). Salvar peças sem `active` não muda o que está no ar.
 

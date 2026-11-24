@@ -5,6 +5,10 @@ import { ProductEntity } from '../products/entities/product.entity';
 import { UpdateHomeLayoutDto } from './dto/update-home-layout.dto';
 import { HomeLayoutEntity } from './entities/home-layout.entity';
 import {
+  BF_MAX_OFFERS,
+  BlackFridayConfig,
+  BlackFridayPiece,
+  BlackFridayTraining,
   DEFAULT_STORY_LABELS,
   FizzLayoutConfig,
   HOME_LAYOUTS,
@@ -12,6 +16,7 @@ import {
   MAX_NEWS_PRODUCTS,
   STORY_IMAGE_SLOTS,
   StoryImage,
+  emptyBlackFridayConfig,
   emptyFizzConfig,
 } from './home-layout.types';
 
@@ -56,6 +61,39 @@ export function normalizeFizzConfig(
   };
 }
 
+const isFuture = (iso: string) => Date.parse(iso) > Date.now();
+
+export function normalizeBlackFridayConfig(
+  raw: Loose<BlackFridayConfig> | null | undefined,
+): BlackFridayConfig {
+  const base = emptyBlackFridayConfig();
+  const value = raw || {};
+  const list = <T>(items: unknown) =>
+    (Array.isArray(items) ? items : []) as Loose<T>[];
+  const hero = list<BlackFridayPiece>(value.hero);
+  const trainings = list<BlackFridayTraining>(value.trainings);
+  const offers = list<unknown>(value.offerProductIds)
+    .map(positiveId)
+    .filter((id): id is number => !!id);
+  const endsAt = text(value.endsAt);
+  return {
+    maxPct: Math.max(0, Math.min(90, Math.round(Number(value.maxPct)) || 0)),
+    endsAt: Number.isNaN(Date.parse(endsAt)) ? base.endsAt : endsAt,
+    heroText: text(value.heroText) || base.heroText,
+    hero: base.hero.map((_, index) => ({
+      productId: positiveId(hero[index]?.productId),
+      color: text(hero[index]?.color),
+    })),
+    offerProductIds: [...new Set(offers)].slice(0, BF_MAX_OFFERS),
+    trainings: base.trainings.map((slot, index) => ({
+      productId: positiveId(trainings[index]?.productId),
+      color: text(trainings[index]?.color),
+      sport: text(trainings[index]?.sport) || slot.sport,
+      line: text(trainings[index]?.line) || slot.line,
+    })),
+  };
+}
+
 @Injectable()
 export class HomeLayoutService {
   constructor(
@@ -67,9 +105,20 @@ export class HomeLayoutService {
 
   async get(): Promise<HomeLayoutSettings> {
     const row = await this.settings.findOneBy({ id: 1 });
+    const blackFriday = normalizeBlackFridayConfig(row?.blackFriday);
+    const previous = row?.previous === 'fizz' ? 'fizz' : 'padrao';
+    const stored =
+      row && HOME_LAYOUTS.includes(row.active) ? row.active : 'padrao';
+    // Terminada a Black, o layout anterior volta sozinho.
+    const active =
+      stored === 'blackfriday' && !isFuture(blackFriday.endsAt)
+        ? previous
+        : stored;
     return {
-      active: row && HOME_LAYOUTS.includes(row.active) ? row.active : 'padrao',
+      active,
+      previous,
       fizz: normalizeFizzConfig(row?.fizz),
+      blackFriday,
     };
   }
 
@@ -78,20 +127,37 @@ export class HomeLayoutService {
     const fizz = dto.fizz
       ? normalizeFizzConfig({ ...current.fizz, ...definedOnly(dto.fizz) })
       : current.fizz;
+    const blackFriday = dto.blackFriday
+      ? normalizeBlackFridayConfig({
+          ...current.blackFriday,
+          ...definedOnly(dto.blackFriday),
+        })
+      : current.blackFriday;
     if (dto.fizz) await this.assertProductsExist(fizz);
+    if (dto.blackFriday) {
+      await this.assertIdsExist([
+        ...blackFriday.hero.map((item) => item.productId),
+        ...blackFriday.offerProductIds,
+        ...blackFriday.trainings.map((item) => item.productId),
+      ]);
+    }
     const active = dto.active ?? current.active;
-    await this.settings.save(this.settings.create({ id: 1, active, fizz }));
-    return { active, fizz };
+    if (active === 'blackfriday' && !isFuture(blackFriday.endsAt)) {
+      throw new BadRequestException(
+        'O término da Black Friday precisa estar no futuro. Para tirar do ar, publique outro layout.',
+      );
+    }
+    const previous =
+      active === 'blackfriday' && current.active !== 'blackfriday'
+        ? current.active
+        : current.previous;
+    const next = { active, previous, fizz, blackFriday };
+    await this.settings.save(this.settings.create({ id: 1, ...next }));
+    return next;
   }
 
-  private async assertProductsExist(fizz: FizzLayoutConfig) {
-    const ids = [
-      fizz.heroProductId,
-      fizz.sideProductId,
-      ...fizz.newsProductIds,
-      ...fizz.storyImages.map((item) => item.productId),
-    ].filter((id): id is number => !!id);
-    const unique = [...new Set(ids)];
+  private async assertIdsExist(ids: Array<number | null>) {
+    const unique = [...new Set(ids.filter((id): id is number => !!id))];
     if (!unique.length) return;
     const found = await this.products.count({ where: { id: In(unique) } });
     if (found !== unique.length) {
@@ -99,6 +165,15 @@ export class HomeLayoutService {
         'Uma das peças selecionadas não existe mais. Recarregue a página e escolha de novo.',
       );
     }
+  }
+
+  private async assertProductsExist(fizz: FizzLayoutConfig) {
+    await this.assertIdsExist([
+      fizz.heroProductId,
+      fizz.sideProductId,
+      ...fizz.newsProductIds,
+      ...fizz.storyImages.map((item) => item.productId),
+    ]);
     if (fizz.newsProductIds.length > MAX_NEWS_PRODUCTS) {
       throw new BadRequestException(
         `Escolha no máximo ${MAX_NEWS_PRODUCTS} peças para "As novidades".`,
