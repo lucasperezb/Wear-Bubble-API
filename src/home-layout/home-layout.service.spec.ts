@@ -73,4 +73,54 @@ describe('HomeLayoutService', () => {
     expect(config.heroProductId).toBeNull();
     expect(config.newsProductIds).toHaveLength(10);
   });
+
+  const future = '2999-01-01T00:00:00-03:00';
+  const past = '2020-01-01T00:00:00-03:00';
+
+  it('publishes Black Friday and remembers the previous layout', async () => {
+    const { service } = setup({ id: 1, active: 'fizz', fizz: {} }, 1);
+    const result = await service.update({
+      active: 'blackfriday',
+      blackFriday: { endsAt: future, maxPct: 30, offerProductIds: [4, 4] },
+    });
+    expect(result).toMatchObject({ active: 'blackfriday', previous: 'fizz' });
+    expect(result.blackFriday.offerProductIds).toEqual([4]);
+  });
+
+  it('keeps the previous layout when Black Friday is edited live', async () => {
+    const { service } = setup({
+      id: 1,
+      active: 'blackfriday',
+      previous: 'fizz',
+      blackFriday: { endsAt: future },
+    });
+    const result = await service.update({ blackFriday: { maxPct: 40 } });
+    expect(result).toMatchObject({ active: 'blackfriday', previous: 'fizz' });
+    expect(result.blackFriday.endsAt).toBe(future);
+  });
+
+  it('goes back to the previous layout after the end', async () => {
+    const { service } = setup({
+      id: 1,
+      active: 'blackfriday',
+      previous: 'fizz',
+      blackFriday: { endsAt: past },
+    });
+    expect((await service.get()).active).toBe('fizz');
+  });
+
+  it('refuses to publish a finished Black Friday', async () => {
+    const { service, settings } = setup();
+    await expect(
+      service.update({ active: 'blackfriday', blackFriday: { endsAt: past } }),
+    ).rejects.toThrow(BadRequestException);
+    expect(settings.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects Black Friday pieces that no longer exist', async () => {
+    const { service } = setup(null, 0);
+    await expect(
+      service.update({ blackFriday: { offerProductIds: [9] } }),
+    ).rejects.toThrow(BadRequestException);
+  });
 });

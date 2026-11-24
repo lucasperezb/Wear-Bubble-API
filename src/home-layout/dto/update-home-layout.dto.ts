@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   Max,
@@ -12,6 +13,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  BF_HERO_SLOTS,
+  BF_MAX_OFFERS,
+  BF_TRAINING_SLOTS,
   HOME_LAYOUTS,
   MAX_NEWS_PRODUCTS,
   STORY_IMAGE_SLOTS,
@@ -72,6 +76,68 @@ export class FizzLayoutDto {
   storyImages?: StoryImageDto[];
 }
 
+export class BlackFridayPieceDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  productId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  color?: string;
+}
+
+export class BlackFridayTrainingDto extends BlackFridayPieceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  sport?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  line?: string;
+}
+
+export class BlackFridayLayoutDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  maxPct?: number;
+
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  endsAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(220)
+  heroText?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(BF_HERO_SLOTS)
+  @ValidateNested({ each: true })
+  @Type(() => BlackFridayPieceDto)
+  hero?: BlackFridayPieceDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(BF_MAX_OFFERS)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  offerProductIds?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(BF_TRAINING_SLOTS)
+  @ValidateNested({ each: true })
+  @Type(() => BlackFridayTrainingDto)
+  trainings?: BlackFridayTrainingDto[];
+}
+
 export class UpdateHomeLayoutDto {
   /** Layout no ar. Mandar só `fizz` salva as peças sem publicar. */
   @IsOptional()
@@ -82,4 +148,9 @@ export class UpdateHomeLayoutDto {
   @ValidateNested()
   @Type(() => FizzLayoutDto)
   fizz?: FizzLayoutDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BlackFridayLayoutDto)
+  blackFriday?: BlackFridayLayoutDto;
 }

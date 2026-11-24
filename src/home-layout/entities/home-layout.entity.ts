@@ -1,6 +1,11 @@
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 import { TimestampedEntity } from '../../persistence/timestamped.entity';
-import type { FizzLayoutConfig, HomeLayoutKey } from '../home-layout.types';
+import type {
+  BaseLayoutKey,
+  BlackFridayConfig,
+  FizzLayoutConfig,
+  HomeLayoutKey,
+} from '../home-layout.types';
 
 /**
  * Linha única (id = 1): qual layout da página inicial está no ar e as peças
@@ -17,4 +22,11 @@ export class HomeLayoutEntity extends TimestampedEntity {
 
   @Column({ type: 'jsonb', default: () => "'{}'" })
   fizz: Partial<FizzLayoutConfig>;
+
+  /** Layout que volta ao ar quando a Black Friday termina. */
+  @Column({ type: 'varchar', length: 20, default: 'padrao' })
+  previous: BaseLayoutKey;
+
+  @Column({ name: 'black_friday', type: 'jsonb', default: () => "'{}'" })
+  blackFriday: Partial<BlackFridayConfig>;
 }
